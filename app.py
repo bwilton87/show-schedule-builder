@@ -92,6 +92,16 @@ def extract_horse_and_arena(line):
 
     return horse, arena
 
+def split_arena(arena):
+    match = re.match(r"(?P<number>\d+):\s*(?P<name>.+)", arena)
+
+    if match:
+        return match.group("number"), match.group("name")
+
+    if arena.strip() == "0":
+        return "0", ""
+
+    return "", arena
 
 def parse_rides(lines, my_riders):
     rides = []
@@ -118,6 +128,7 @@ def parse_rides(lines, my_riders):
             class_code = parts[3]
 
             horse, arena = extract_horse_and_arena(line)
+            arena_number, arena_name = split_arena(arena)
 
             rides.append({
                 "rider": current_rider,
@@ -126,6 +137,8 @@ def parse_rides(lines, my_riders):
                 "class": class_code,
                 "horse": horse,
                 "arena": arena,
+                "arena_number": arena_number,
+                "arena_name": arena_name,
                 "raw": line
             })
 
@@ -145,8 +158,9 @@ def export_schedule_csv(rides):
             "Ready By / On Horse By",
             "Rider",
             "Horse",
-            "Class",
-            "Arena",
+            "Class #",
+            "Arena #",
+            "Arena Name",
             "Notes"
         ])
 
@@ -158,7 +172,8 @@ def export_schedule_csv(rides):
                 r["rider"],
                 r["horse"],
                 r["class"],
-                r["arena"],
+                r["arena_number"],
+                r["arena_name"],
                 ""
             ])
 
@@ -209,7 +224,7 @@ def main():
             f"{r['rider']} — "
             f"{r['horse']} — "
             f"{r['class']} — "
-            f"{r['arena']}"
+            f"Arena {r['arena_number']}: {r['arena_name']}"
         )
 
     export_schedule_csv(rides)
