@@ -453,6 +453,22 @@ def print_validation_report(rides, class_map):
     print("=============================\n")
 
 
+def make_ride_id(ride):
+    raw_id = (
+        f"{ride['day']}_"
+        f"{ride['time']}_"
+        f"{ride['rider']}_"
+        f"{ride['horse']}_"
+        f"{ride['class']}"
+    )
+
+    # Keep only letters and numbers so AppSheet has a clean key
+    clean_id = re.sub(r"[^A-Za-z0-9]+", "_", raw_id)
+    clean_id = clean_id.strip("_")
+
+    return clean_id
+
+
 def export_missing_class_definitions(rides):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -660,6 +676,50 @@ def setup_schedule_sheet(sheet, rides, title):
     sheet.print_title_rows = "1:3"
 
 
+def export_appsheet_csv(rides):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    output_file = os.path.join(OUTPUT_FOLDER, "appsheet_schedule.csv")
+
+    with open(output_file, "w", newline="") as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Ride ID",
+            "Show Name",
+            "Day",
+            "Ride Time",
+            "Ready By / On Horse By",
+            "Rider",
+            "Horse",
+            "Class #",
+            "Class Name",
+            "Arena #",
+            "Arena Name",
+            "Notes",
+            "Status"
+        ])
+
+        for r in rides:
+            writer.writerow([
+                make_ride_id(r),
+                "",                 # Show Name - fill in later if desired
+                r["day"],
+                r["time"],
+                "",                 # Ready By / On Horse By - editable in AppSheet
+                r["rider"],
+                r["horse"],
+                r["class"],
+                r["class_name"],
+                r["arena_number"],
+                r["arena_name"],
+                "",                 # Notes - editable in AppSheet
+                "Scheduled"         # Status - editable in AppSheet
+            ])
+
+    print(f"AppSheet schedule exported to: {output_file}")
+
+
 def export_schedule_xlsx(rides):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -704,7 +764,7 @@ def export_schedule_xlsx(rides):
     workbook.save(output_file)
 
     print(f"Formatted Excel schedule exported to: {output_file}")
-            
+
 
 def main():
     my_riders = load_riders()
@@ -747,6 +807,7 @@ def main():
 
     export_schedule_csv(rides)
     export_schedule_xlsx(rides)
-
+    export_appsheet_csv(rides)
+    
 if __name__ == "__main__":
     main()
