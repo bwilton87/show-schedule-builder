@@ -563,7 +563,7 @@ def export_schedule_csv(rides):
 
     print(f"\nSchedule exported to: {output_file}")
 
-def setup_schedule_sheet(sheet, rides):
+def setup_schedule_sheet(sheet, rides, title):
     headers = [
         "Day",
         "Ride Time",
@@ -577,6 +577,18 @@ def setup_schedule_sheet(sheet, rides):
         "Notes"
     ]
 
+    # Title row
+    sheet["A1"] = title
+    sheet["A1"].font = Font(bold=True, size=16)
+    sheet["A1"].alignment = Alignment(horizontal="left", vertical="center")
+
+    # Merge title across the full table width
+    sheet.merge_cells("A1:J1")
+
+    # Blank spacer row
+    sheet.append([])
+
+    # Header row starts on row 3
     sheet.append(headers)
 
     for r in rides:
@@ -597,16 +609,16 @@ def setup_schedule_sheet(sheet, rides):
     header_fill = PatternFill("solid", fgColor="D9EAF7")
     header_font = Font(bold=True)
 
-    for cell in sheet[1]:
+    for cell in sheet[3]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Freeze header row
-    sheet.freeze_panes = "A2"
+    # Freeze title + spacer + header
+    sheet.freeze_panes = "A4"
 
-    # Auto-filter
-    sheet.auto_filter.ref = sheet.dimensions
+    # Auto-filter on table only
+    sheet.auto_filter.ref = f"A3:J{sheet.max_row}"
 
     # Column widths
     column_widths = {
@@ -626,21 +638,26 @@ def setup_schedule_sheet(sheet, rides):
         sheet.column_dimensions[column_letter].width = width
 
     # Body formatting
-    for row in sheet.iter_rows(min_row=2):
+    for row in sheet.iter_rows(min_row=4):
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
     # Highlight manual entry columns
-    for row in range(2, sheet.max_row + 1):
+    for row in range(4, sheet.max_row + 1):
         sheet[f"C{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
         sheet[f"J{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
+
+    # Slightly taller title row
+    sheet.row_dimensions[1].height = 24
 
     # Page setup for printing
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
-    sheet.print_title_rows = "1:1"
+
+    # Repeat title/header area when printed
+    sheet.print_title_rows = "1:3"
 
 
 def export_schedule_xlsx(rides):
@@ -653,9 +670,19 @@ def export_schedule_xlsx(rides):
     # Main all-rides sheet
     all_sheet = workbook.active
     all_sheet.title = "All Rides"
-    setup_schedule_sheet(all_sheet, rides)
+    setup_schedule_sheet(all_sheet, rides, "All Rides Barn Schedule")
 
     # Separate sheets by day
+    day_titles = {
+        "Mon": "Monday Barn Schedule",
+        "Tue": "Tuesday Barn Schedule",
+        "Wed": "Wednesday Barn Schedule",
+        "Thu": "Thursday Barn Schedule",
+        "Fri": "Friday Barn Schedule",
+        "Sat": "Saturday Barn Schedule",
+        "Sun": "Sunday Barn Schedule",
+    }
+
     days = []
     for r in rides:
         if r["day"] not in days:
@@ -668,12 +695,16 @@ def export_schedule_xlsx(rides):
         ]
 
         day_sheet = workbook.create_sheet(title=day)
-        setup_schedule_sheet(day_sheet, day_rides)
+        setup_schedule_sheet(
+            day_sheet,
+            day_rides,
+            day_titles.get(day, f"{day} Barn Schedule")
+        )
 
     workbook.save(output_file)
 
     print(f"Formatted Excel schedule exported to: {output_file}")
-        
+            
 
 def main():
     my_riders = load_riders()
