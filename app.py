@@ -30,6 +30,21 @@ DAY_ORDER = {
 }
 
 
+SHOW_NAME = "Barn Schedule"
+
+
+def slugify_filename(text):
+    text = text.lower().strip()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = text.strip("-")
+    return text or "show"
+
+
+def output_path(filename):
+    show_slug = slugify_filename(SHOW_NAME)
+    return os.path.join(OUTPUT_FOLDER, f"{show_slug}_{filename}")
+
+
 arena_pattern = re.compile(r"\s(?P<arena_num>\d+):\s")
 ride_pattern = re.compile(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d")
 rider_pattern = re.compile(r"^[A-Z][a-zA-Z'’\-]+,\s+[A-Z]")
@@ -220,8 +235,8 @@ def build_class_map():
 def export_class_map_csv(class_map):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    output_file = os.path.join(OUTPUT_FOLDER, "class_map.csv")
-
+    output_file = output_path("barn_schedule.csv")
+    
     with open(output_file, "w", newline="") as file:
         writer = csv.writer(file)
 
@@ -545,7 +560,7 @@ def ride_sort_key(ride):
 def export_schedule_csv(rides):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    output_file = os.path.join(OUTPUT_FOLDER, "barn_schedule.csv")
+    output_file = output_path("barn_schedule.csv")
 
     with open(output_file, "w", newline="") as file:
         writer = csv.writer(file)
@@ -679,7 +694,7 @@ def setup_schedule_sheet(sheet, rides, title):
 def export_appsheet_csv(rides):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    output_file = os.path.join(OUTPUT_FOLDER, "appsheet_schedule.csv")
+    output_file = output_path("appsheet_schedule.csv")
 
     with open(output_file, "w", newline="") as file:
         writer = csv.writer(file)
@@ -723,14 +738,14 @@ def export_appsheet_csv(rides):
 def export_schedule_xlsx(rides):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    output_file = os.path.join(OUTPUT_FOLDER, "barn_schedule.xlsx")
+    output_file = output_path("barn_schedule.xlsx")
 
     workbook = Workbook()
 
     # Main all-rides sheet
     all_sheet = workbook.active
     all_sheet.title = "All Rides"
-    setup_schedule_sheet(all_sheet, rides, "All Rides Barn Schedule")
+    setup_schedule_sheet(all_sheet, rides, f"{SHOW_NAME} - All Rides Barn Schedule")
 
     # Separate sheets by day
     day_titles = {
@@ -758,7 +773,7 @@ def export_schedule_xlsx(rides):
         setup_schedule_sheet(
             day_sheet,
             day_rides,
-            day_titles.get(day, f"{day} Barn Schedule")
+            f"{SHOW_NAME} - {day_titles.get(day, f'{day} Barn Schedule')}"
         )
 
     workbook.save(output_file)
