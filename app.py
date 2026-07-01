@@ -2,6 +2,9 @@ import csv
 import os
 import re
 from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
 
 import pdfplumber
 
@@ -560,6 +563,100 @@ def export_schedule_csv(rides):
 
     print(f"\nSchedule exported to: {output_file}")
 
+def export_schedule_xlsx(rides):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    output_file = os.path.join(OUTPUT_FOLDER, "barn_schedule.xlsx")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Barn Schedule"
+
+    headers = [
+        "Day",
+        "Ride Time",
+        "Ready By / On Horse By",
+        "Rider",
+        "Horse",
+        "Class #",
+        "Class Name",
+        "Arena #",
+        "Arena Name",
+        "Notes"
+    ]
+
+    sheet.append(headers)
+
+    for r in rides:
+        sheet.append([
+            r["day"],
+            r["time"],
+            "",
+            r["rider"],
+            r["horse"],
+            r["class"],
+            r["class_name"],
+            r["arena_number"],
+            r["arena_name"],
+            ""
+        ])
+
+    # Header formatting
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_font = Font(bold=True)
+
+    for cell in sheet[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Freeze header row
+    sheet.freeze_panes = "A2"
+
+    # Auto-filter
+    sheet.auto_filter.ref = sheet.dimensions
+
+    # Column widths
+    column_widths = {
+        "A": 10,   # Day
+        "B": 12,   # Ride Time
+        "C": 22,   # Ready By
+        "D": 24,   # Rider
+        "E": 24,   # Horse
+        "F": 12,   # Class #
+        "G": 36,   # Class Name
+        "H": 10,   # Arena #
+        "I": 28,   # Arena Name
+        "J": 30,   # Notes
+    }
+
+    for column_letter, width in column_widths.items():
+        sheet.column_dimensions[column_letter].width = width
+
+    # Row formatting
+    for row in sheet.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+    # Make the ready-by and notes columns visibly editable
+    for row in range(2, sheet.max_row + 1):
+        sheet[f"C{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
+        sheet[f"J{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
+
+    # Page setup for printing
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+
+    # Repeat header row when printed
+    sheet.print_title_rows = "1:1"
+
+    workbook.save(output_file)
+
+    print(f"Formatted Excel schedule exported to: {output_file}")
+        
+
 
 def main():
     my_riders = load_riders()
@@ -601,7 +698,7 @@ def main():
         )
 
     export_schedule_csv(rides)
-
+    export_schedule_xlsx(rides)
 
 if __name__ == "__main__":
     main()
