@@ -252,11 +252,18 @@ class HorseShowSchedulerGUI:
             "============================\n"
         )
 
+                # Clear GUI fields for the next show
+        self.show_name.set("")
+        self.ride_time_pdf.set("")
+        self.class_schedule_pdf.set("")
+
         messagebox.showinfo(
             "Archive Complete",
             "Current show files were archived successfully.\n\n"
+            "The show name and selected PDFs have been cleared.\n\n"
             "You can now set up the next show."
         )
+
 
     def prepare_input_folders(self):
         ride_pdf = Path(self.ride_time_pdf.get())
@@ -273,6 +280,51 @@ class HorseShowSchedulerGUI:
 
         shutil.copy2(ride_pdf, RIDE_TIMES_FOLDER / ride_pdf.name)
         shutil.copy2(class_pdf, CLASS_SCHEDULES_FOLDER / class_pdf.name)
+    
+
+    def build_friendly_summary(self, result_text):
+        summary_lines = []
+
+        if "Filtered rides:" in result_text:
+            for line in result_text.splitlines():
+                if "Filtered rides:" in line:
+                    summary_lines.append(f"✅ {line.strip()}")
+                    break
+
+        if "Loaded" in result_text and "class definitions" in result_text:
+            for line in result_text.splitlines():
+                if "Loaded" in line and "class definitions" in line:
+                    summary_lines.append(f"✅ {line.strip()}")
+                    break
+
+        if "No missing class definitions found." in result_text:
+            summary_lines.append("✅ No missing class definitions found.")
+        elif "Missing class definitions:" in result_text:
+            summary_lines.append("⚠️ Missing class definitions found. Review the validation output.")
+
+        if "No rides missing horse names." in result_text:
+            summary_lines.append("✅ No rides missing horse names.")
+        elif "Rides missing horse name:" in result_text:
+            summary_lines.append("⚠️ Some rides are missing horse names.")
+
+        if "No rides missing arena info." in result_text:
+            summary_lines.append("✅ No rides missing arena info.")
+        elif "Rides missing arena:" in result_text:
+            summary_lines.append("⚠️ Some rides are missing arena information.")
+
+        if "Schedule exported to:" in result_text:
+            summary_lines.append("✅ CSV schedule exported.")
+
+        if "Formatted Excel schedule exported to:" in result_text:
+            summary_lines.append("✅ Excel schedule exported.")
+
+        if "AppSheet schedule exported to:" in result_text:
+            summary_lines.append("✅ AppSheet schedule exported.")
+
+        if not summary_lines:
+            summary_lines.append("Schedule generation completed. Review the output below.")
+
+        return "\n".join(summary_lines)
 
     def generate_schedule(self):
         self.output_text.delete("1.0", tk.END)
@@ -295,13 +347,24 @@ class HorseShowSchedulerGUI:
 
 
             result_text = captured_output.getvalue()
+            friendly_summary = self.build_friendly_summary(result_text)
 
+            self.output_text.insert(tk.END, "===== SUMMARY =====\n")
+            self.output_text.insert(tk.END, friendly_summary)
+            self.output_text.insert(tk.END, "\n\n===== DETAILS =====\n")
             self.output_text.insert(tk.END, result_text)
 
-            messagebox.showinfo(
-                "Schedule Generated",
-                "Schedule files were generated successfully.\n\nCheck the output folder."
-            )
+            if "⚠️" in friendly_summary:
+                messagebox.showwarning(
+                    "Schedule Generated with Warnings",
+                    "Schedule files were generated, but some items need review.\n\n"
+                    "Check the summary and validation output."
+                )
+            else:
+                messagebox.showinfo(
+                    "Schedule Generated",
+                    "Schedule files were generated successfully.\n\nCheck the output folder."
+                )
 
         except Exception as error:
             error_message = f"ERROR:\n{error}"
@@ -396,7 +459,7 @@ class HorseShowSchedulerGUI:
                 archive_show_folder / "riders.txt"
             )
 
-        self.output_text.insert(
+            self.output_text.insert(
             tk.END,
             "\n===== ARCHIVE COMPLETE =====\n"
             f"Archive folder:\n{archive_show_folder}\n\n"
@@ -408,9 +471,18 @@ class HorseShowSchedulerGUI:
             "============================\n"
         )
 
+        # Clear GUI fields for the next show
+        self.show_name.set("")
+        self.ride_time_pdf.set("")
+        self.class_schedule_pdf.set("")
+
+        # Force the interface to refresh immediately
+        self.root.update_idletasks()
+
         messagebox.showinfo(
             "Archive Complete",
             "Current show files were archived successfully.\n\n"
+            "The show name and selected PDFs have been cleared.\n\n"
             "You can now set up the next show."
         )
 
