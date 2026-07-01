@@ -10,6 +10,10 @@ PDF_FOLDER = "ride_times"
 CLASS_SCHEDULE_FOLDER = "class_schedules"
 RIDERS_FILE = "riders.txt"
 OUTPUT_FOLDER = "output"
+LETTER_ONLY_CLASS_CODES = {
+    "L",
+    "DHGEF",
+}
 
 
 DAY_ORDER = {
@@ -115,13 +119,23 @@ def group_words_into_rows(words, tolerance=3):
 
 
 def looks_like_class_code(text):
+    text = text.strip()
+
     if text in {"AM", "PM"}:
         return False
 
     if text.startswith("-"):
         return False
 
-    return bool(re.match(r"^[A-Z]*\d[A-Z0-9]*$", text)) or text == "L"
+    if text in LETTER_ONLY_CLASS_CODES:
+        return True
+
+    # Most class codes contain at least one number:
+    # H1PSG, 121, 1FFS, 2I1, OB29, PB45GS, DHPEF, US4EF, etc.
+    if re.match(r"^[A-Z]*\d[A-Z0-9]*$", text):
+        return True
+
+    return False
 
 
 def build_class_map():
