@@ -96,38 +96,130 @@ def clean_class_name(name):
     return name
 
 
+def group_words_into_rows(words, tolerance=3):
+    rows = []
+
+    for word in sorted(words, key=lambda w: (w["top"], w["x0"])):
+        if not rows:
+            rows.append([word["top"], [word]])
+            continue
+
+        previous_top = rows[-1][0]
+
+        if abs(word["top"] - previous_top) <= tolerance:
+            rows[-1][1].append(word)
+        else:
+            rows.append([word["top"], [word]])
+
+    return rows
+
+
+def looks_like_class_code(text):
+    if text in {"AM", "PM"}:
+        return False
+
+    if text.startswith("-"):
+        return False
+
+    return bool(re.match(r"^[A-Z]*\d[A-Z0-9]*$", text)) or text == "L"
+
+
 def build_class_map():
-    lines = extract_lines_from_folder(CLASS_SCHEDULE_FOLDER)
     class_map = {}
 
-    for line in lines:
-        line = line.strip()
+    if not os.path.exists(CLASS_SCHEDULE_FOLDER):
+        return class_map
 
-        if not class_schedule_time_pattern.match(line):
+    for file in os.listdir(CLASS_SCHEDULE_FOLDER):
+        if not file.lower().endswith(".pdf"):
             continue
 
-        if "Break" in line or "Lunch" in line or "Arena Done" in line:
-            continue
+        path = os.path.join(CLASS_SCHEDULE_FOLDER, file)
 
-        # Remove the time from the front of the line.
-        without_time = re.sub(r"^\d{1,2}:\d{2}\s+(AM|PM)\s+", "", line).strip()
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                words = page.extract_words()
+                rows = group_words_into_rows(words)
 
-        codes = class_code_pattern.findall(without_time)
+                for _, row_words in rows:
+                    row_words = sorted(row_words, key=lambda w: w["x0"])
 
-        if not codes:
-            continue
+                    row_text = " ".join(w["text"] for w in row_words)
 
-        # Usually the actual class code is the last code-like value in the line.
-        class_code = codes[-1]
+                    if "Break" in row_text or "Lunch" in row_text or "Arena Done" in row_text:
+                        continue
 
-        # Remove the class code from the class name text.
-        class_name = without_time.replace(class_code, " ").strip()
-        class_name = clean_class_name(class_name)
+                    # A class schedule row should begin with a time.
+                    if len(row_words) < 4:
+                        continue
 
-        if class_code and class_name:
-            class_map[class_code] = class_name
+                    if not re.match(r"^\d{1,2}:\d{2}$", row_words[0]["text"]):
+                        continue
+
+                    if row_words[1]["text"] not in {"AM", "PM"}:
+                        continue
+
+                    # In this PDF, the class code is usually the first code-like token
+                    # after the time and AM/PM.
+                    class_code = ""
+                    class_code_index = None
+
+                    for i, word in enumerate(row_words[2:], start=2):
+                        if looks_like_class_code(word["text"]):
+                            class_code = word["text"]
+                            class_code_index = i
+                            break
+
+                    if not class_code:
+                        continue
+
+                    class_name_words = []
+
+                    for word in row_words[class_code_index + 1:]:
+                        text = word["text"]
+
+                        # Judge/location text is usually far to the right.
+                        # Stop before it.
+                        if word["x0"] > 390:
+                            break
+
+                        if text == "Continues":
+                            continue
+
+                        class_name_words.append(text)
+
+                    class_name = " ".join(class_name_words).strip()
+                    class_name = clean_class_name(class_name)
+
+                    if class_code and class_name:
+                        existing = class_map.get(class_code)
+
+                        # Prefer the shorter/base name over a messy duplicate.
+                        if not existing or len(class_name) < len(existing):
+                            class_map[class_code] = class_name
 
     return class_map
+
+def export_class_map_csv(class_map):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    output_file = os.path.join(OUTPUT_FOLDER, "class_map.csv")
+
+    with open(output_file, "w", newline="") as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Class #",
+            "Class Name"
+        ])
+
+        for class_code in sorted(class_map.keys()):
+            writer.writerow([
+                class_code,
+                class_map[class_code]
+            ])
+
+    print(f"Class map exported to: {output_file}")
 
 
 def normalize_text(text):
@@ -272,6 +364,119 @@ def parse_rides(lines, my_riders, class_map):
     return rides
 
 
+def print_validation_report(rides, class_map):
+    missing_class_codes = sorted({
+        r["class"]
+        for r in rides
+        if not r["class_name"]
+    })
+
+    print("\n===== VALIDATION REPORT =====")
+
+    print(f"Class definitions loaded: {len(class_map)}")
+
+    if missing_class_codes:
+        print("\nMissing class definitions:")
+        for code in missing_class_codes:
+            print(f"- {code}")
+    else:
+        print("\nNo missing class definitions found.")
+
+    rides_missing_horse = [
+        r for r in rides
+        if not r["horse"]
+    ]
+
+    if rides_missing_horse:
+        print("\nRides missing horse name:")
+        for r in rides_missing_horse:
+            print(f"- {r['day']} {r['time']} {r['rider']} {r['class']}")
+    else:
+        print("No rides missing horse names.")
+
+    rides_missing_arena = [
+        r for r in rides
+        if not r["arena_number"]
+    ]
+
+    if rides_missing_arena:
+        print("\nRides missing arena:")
+        for r in rides_missing_arena:
+            print(f"- {r['day']} {r['time']} {r['rider']} {r['class']}")
+    else:
+        print("No rides missing arena info.")
+
+    print("=============================\n")
+
+
+def export_missing_class_definitions(rides):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    output_file = os.path.join(OUTPUT_FOLDER, "missing_class_definitions.csv")
+
+    missing = []
+
+    for r in rides:
+        if not r["class_name"]:
+            missing.append(r)
+
+    with open(output_file, "w", newline="") as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Class #",
+            "Day",
+            "Ride Time",
+            "Rider",
+            "Horse",
+            "Raw Line"
+        ])
+
+        for r in missing:
+            writer.writerow([
+                r["class"],
+                r["day"],
+                r["time"],
+                r["rider"],
+                r["horse"],
+                r["raw"]
+            ])
+
+    if missing:
+        print(f"Missing class definitions exported to: {output_file}")
+    else:
+        print("No missing class definitions file needed.")
+
+
+def export_used_class_codes(rides, class_map):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    output_file = os.path.join(OUTPUT_FOLDER, "used_class_codes.csv")
+
+    used_codes = sorted({
+        r["class"]
+        for r in rides
+    })
+
+    with open(output_file, "w", newline="") as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Class #",
+            "Found In Class Map?",
+            "Class Name"
+        ])
+
+        for code in used_codes:
+            writer.writerow([
+                code,
+                "Yes" if code in class_map else "No",
+                class_map.get(code, "")
+            ])
+
+    print(f"Used class codes exported to: {output_file}")
+
+
 def ride_sort_key(ride):
     ride_time = datetime.strptime(ride["time"], "%I:%M %p").time()
     return (DAY_ORDER.get(ride["day"], 99), ride_time)
@@ -325,11 +530,16 @@ def main():
     class_map = build_class_map()
 
     print(f"Loaded {len(class_map)} class definitions from class schedule PDFs.")
+    export_class_map_csv(class_map)
 
     lines = extract_lines_from_folder(PDF_FOLDER)
     rides = parse_rides(lines, my_riders, class_map)
 
     rides.sort(key=ride_sort_key)
+
+    print_validation_report(rides, class_map)
+    export_missing_class_definitions(rides)
+    export_used_class_codes(rides, class_map)
 
     print(f"\nFiltered rides: {len(rides)}\n")
 
