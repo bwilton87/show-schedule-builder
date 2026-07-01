@@ -6,6 +6,7 @@ import subprocess
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext
+from datetime import datetime
 
 import app
 
@@ -15,6 +16,7 @@ RIDE_TIMES_FOLDER = PROJECT_ROOT / "ride_times"
 CLASS_SCHEDULES_FOLDER = PROJECT_ROOT / "class_schedules"
 OUTPUT_FOLDER = PROJECT_ROOT / "output"
 RIDERS_FILE = PROJECT_ROOT / "riders.txt"
+ARCHIVE_FOLDER = PROJECT_ROOT / "archive"
 
 
 class HorseShowSchedulerGUI:
@@ -88,6 +90,14 @@ class HorseShowSchedulerGUI:
 
         tk.Button(
             button_frame,
+            text="Archive Current Show",
+            command=self.archive_current_show,
+            height=2,
+            bg="#fce5cd"
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            button_frame,
             text="Clear Selected PDFs",
             command=self.clear_selected_pdfs,
             height=2
@@ -146,6 +156,108 @@ class HorseShowSchedulerGUI:
             if item.is_file():
                 item.unlink()
 
+    def folder_has_files(self, folder):
+        if not folder.exists():
+            return False
+
+        return any(item.is_file() for item in folder.iterdir())
+
+    def archive_folder_contents(self, source_folder, archive_show_folder):
+        source_folder.mkdir(exist_ok=True)
+
+        files = [
+            item for item in source_folder.iterdir()
+            if item.is_file()
+        ]
+
+        if not files:
+            return 0
+
+        destination_folder = archive_show_folder / source_folder.name
+        destination_folder.mkdir(parents=True, exist_ok=True)
+
+        for file in files:
+            shutil.move(str(file), str(destination_folder / file.name))
+
+        return len(files)
+
+    def archive_current_show(self):
+        show_name = self.show_name.get().strip()
+
+        if not show_name:
+            messagebox.showerror(
+                "Missing Show Name",
+                "Please enter a show name before archiving."
+            )
+            return
+
+        has_any_files = (
+            self.folder_has_files(RIDE_TIMES_FOLDER)
+            or self.folder_has_files(CLASS_SCHEDULES_FOLDER)
+            or self.folder_has_files(OUTPUT_FOLDER)
+        )
+
+        if not has_any_files:
+            messagebox.showinfo(
+                "Nothing to Archive",
+                "There are no current show files to archive."
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Archive Current Show",
+            "This will archive the current PDFs and output files, then clear the working folders.\n\n"
+            "Continue?"
+        )
+
+        if not confirm:
+            return
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        show_slug = app.slugify_filename(show_name)
+        archive_show_folder = ARCHIVE_FOLDER / f"{show_slug}_{timestamp}"
+
+        archive_show_folder.mkdir(parents=True, exist_ok=True)
+
+        ride_count = self.archive_folder_contents(
+            RIDE_TIMES_FOLDER,
+            archive_show_folder
+        )
+
+        class_count = self.archive_folder_contents(
+            CLASS_SCHEDULES_FOLDER,
+            archive_show_folder
+        )
+
+        output_count = self.archive_folder_contents(
+            OUTPUT_FOLDER,
+            archive_show_folder
+        )
+
+        if RIDERS_FILE.exists():
+            shutil.copy2(
+                RIDERS_FILE,
+                archive_show_folder / "riders.txt"
+            )
+
+        self.output_text.insert(
+            tk.END,
+            "\n===== ARCHIVE COMPLETE =====\n"
+            f"Archive folder:\n{archive_show_folder}\n\n"
+            f"Ride-time PDFs archived: {ride_count}\n"
+            f"Class schedule PDFs archived: {class_count}\n"
+            f"Output files archived: {output_count}\n"
+            "Rider list snapshot saved.\n"
+            "Working folders are now clear for the next show.\n"
+            "============================\n"
+        )
+
+        messagebox.showinfo(
+            "Archive Complete",
+            "Current show files were archived successfully.\n\n"
+            "You can now set up the next show."
+        )
+
     def prepare_input_folders(self):
         ride_pdf = Path(self.ride_time_pdf.get())
         class_pdf = Path(self.class_schedule_pdf.get())
@@ -181,7 +293,7 @@ class HorseShowSchedulerGUI:
             with contextlib.redirect_stdout(captured_output):
                 app.main()
 
-                
+
             result_text = captured_output.getvalue()
 
             self.output_text.insert(tk.END, result_text)
@@ -199,6 +311,108 @@ class HorseShowSchedulerGUI:
     def open_output_folder(self):
         OUTPUT_FOLDER.mkdir(exist_ok=True)
         subprocess.run(["open", str(OUTPUT_FOLDER)])
+
+    def folder_has_files(self, folder):
+        if not folder.exists():
+            return False
+
+        return any(item.is_file() for item in folder.iterdir())
+
+    def archive_folder_contents(self, source_folder, archive_show_folder):
+        source_folder.mkdir(exist_ok=True)
+
+        files = [
+            item for item in source_folder.iterdir()
+            if item.is_file()
+        ]
+
+        if not files:
+            return 0
+
+        destination_folder = archive_show_folder / source_folder.name
+        destination_folder.mkdir(parents=True, exist_ok=True)
+
+        for file in files:
+            shutil.move(str(file), str(destination_folder / file.name))
+
+        return len(files)
+
+    def archive_current_show(self):
+        show_name = self.show_name.get().strip()
+
+        if not show_name:
+            messagebox.showerror(
+                "Missing Show Name",
+                "Please enter a show name before archiving."
+            )
+            return
+
+        has_any_files = (
+            self.folder_has_files(RIDE_TIMES_FOLDER)
+            or self.folder_has_files(CLASS_SCHEDULES_FOLDER)
+            or self.folder_has_files(OUTPUT_FOLDER)
+        )
+
+        if not has_any_files:
+            messagebox.showinfo(
+                "Nothing to Archive",
+                "There are no current show files to archive."
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Archive Current Show",
+            "This will archive the current PDFs and output files, then clear the working folders.\n\n"
+            "Continue?"
+        )
+
+        if not confirm:
+            return
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        show_slug = app.slugify_filename(show_name)
+        archive_show_folder = ARCHIVE_FOLDER / f"{show_slug}_{timestamp}"
+
+        archive_show_folder.mkdir(parents=True, exist_ok=True)
+
+        ride_count = self.archive_folder_contents(
+            RIDE_TIMES_FOLDER,
+            archive_show_folder
+        )
+
+        class_count = self.archive_folder_contents(
+            CLASS_SCHEDULES_FOLDER,
+            archive_show_folder
+        )
+
+        output_count = self.archive_folder_contents(
+            OUTPUT_FOLDER,
+            archive_show_folder
+        )
+
+        if RIDERS_FILE.exists():
+            shutil.copy2(
+                RIDERS_FILE,
+                archive_show_folder / "riders.txt"
+            )
+
+        self.output_text.insert(
+            tk.END,
+            "\n===== ARCHIVE COMPLETE =====\n"
+            f"Archive folder:\n{archive_show_folder}\n\n"
+            f"Ride-time PDFs archived: {ride_count}\n"
+            f"Class schedule PDFs archived: {class_count}\n"
+            f"Output files archived: {output_count}\n"
+            "Rider list snapshot saved.\n"
+            "Working folders are now clear for the next show.\n"
+            "============================\n"
+        )
+
+        messagebox.showinfo(
+            "Archive Complete",
+            "Current show files were archived successfully.\n\n"
+            "You can now set up the next show."
+        )
 
 
 def main():
