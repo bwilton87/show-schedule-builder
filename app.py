@@ -253,12 +253,39 @@ def split_class_and_horse(text, class_code, class_map):
         normalized_text = normalize_text(text)
         normalized_class_name = normalize_text(class_name)
 
+        # Try exact class-map match first.
         if normalized_text.startswith(normalized_class_name):
             horse = text[len(class_name):].strip()
             return class_name, horse
 
+        # Try removing common qualifier phrases from the class-map name.
+        simplified_class_name = class_name
+
+        qualifier_phrases = [
+            "Markel/USEF Qualifying",
+            "USEF Qualifying",
+            "Qualifying",
+        ]
+
+        for phrase in qualifier_phrases:
+            simplified_class_name = simplified_class_name.replace(phrase, "").strip()
+
+        simplified_class_name = re.sub(r"\s+", " ", simplified_class_name).strip()
+        normalized_simplified = normalize_text(simplified_class_name)
+
+        if normalized_simplified and normalized_text.startswith(normalized_simplified):
+            horse = text[len(simplified_class_name):].strip()
+            return class_name, horse
+
     # Fallback patterns for cases where class schedule parsing is imperfect.
     fallback_patterns = [
+        r"USEF Developing Horse Grand Prix Test",
+        r"USEF Developing Horse Prix St\.? George Test",
+        r"USEF 4-Year-Old Test",
+        r"FEI 5-Year-Old Test Preliminary",
+        r"FEI 5-Year-Old Test Final",
+        r"FEI Pony Team Test",
+        r"FEI Pony Individual Test",
         r"FEI Prix\.? St\. Georges",
         r"FEI Intermediare I",
         r"FEI Intermediare II",
@@ -291,7 +318,7 @@ def split_class_and_horse(text, class_code, class_map):
         if match:
             found_class_name = match.group(0).strip()
             horse = text[match.end():].strip()
-            return found_class_name, horse
+            return class_name or found_class_name, horse
 
     return class_name, text
 
