@@ -563,15 +563,7 @@ def export_schedule_csv(rides):
 
     print(f"\nSchedule exported to: {output_file}")
 
-def export_schedule_xlsx(rides):
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-    output_file = os.path.join(OUTPUT_FOLDER, "barn_schedule.xlsx")
-
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Barn Schedule"
-
+def setup_schedule_sheet(sheet, rides):
     headers = [
         "Day",
         "Ride Time",
@@ -618,27 +610,27 @@ def export_schedule_xlsx(rides):
 
     # Column widths
     column_widths = {
-        "A": 10,   # Day
-        "B": 12,   # Ride Time
-        "C": 22,   # Ready By
-        "D": 24,   # Rider
-        "E": 24,   # Horse
-        "F": 12,   # Class #
-        "G": 36,   # Class Name
-        "H": 10,   # Arena #
-        "I": 28,   # Arena Name
-        "J": 30,   # Notes
+        "A": 10,
+        "B": 12,
+        "C": 22,
+        "D": 24,
+        "E": 24,
+        "F": 12,
+        "G": 38,
+        "H": 10,
+        "I": 34,
+        "J": 30,
     }
 
     for column_letter, width in column_widths.items():
         sheet.column_dimensions[column_letter].width = width
 
-    # Row formatting
+    # Body formatting
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
-    # Make the ready-by and notes columns visibly editable
+    # Highlight manual entry columns
     for row in range(2, sheet.max_row + 1):
         sheet[f"C{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
         sheet[f"J{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
@@ -648,15 +640,40 @@ def export_schedule_xlsx(rides):
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
-
-    # Repeat header row when printed
     sheet.print_title_rows = "1:1"
+
+
+def export_schedule_xlsx(rides):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    output_file = os.path.join(OUTPUT_FOLDER, "barn_schedule.xlsx")
+
+    workbook = Workbook()
+
+    # Main all-rides sheet
+    all_sheet = workbook.active
+    all_sheet.title = "All Rides"
+    setup_schedule_sheet(all_sheet, rides)
+
+    # Separate sheets by day
+    days = []
+    for r in rides:
+        if r["day"] not in days:
+            days.append(r["day"])
+
+    for day in days:
+        day_rides = [
+            r for r in rides
+            if r["day"] == day
+        ]
+
+        day_sheet = workbook.create_sheet(title=day)
+        setup_schedule_sheet(day_sheet, day_rides)
 
     workbook.save(output_file)
 
     print(f"Formatted Excel schedule exported to: {output_file}")
         
-
 
 def main():
     my_riders = load_riders()
