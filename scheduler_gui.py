@@ -62,13 +62,54 @@ class HorseShowSchedulerGUI:
 
         riders_label = tk.Label(
             self.root,
-            text="Riders to include, one per line, exactly as shown in the PDF:",
+            text="Riders to include, exactly as shown in the PDF:",
             anchor="w"
         )
         riders_label.pack(fill="x", padx=20, pady=(15, 3))
 
-        self.riders_text = scrolledtext.ScrolledText(self.root, height=9)
-        self.riders_text.pack(fill="both", padx=20, pady=5)
+        rider_entry_frame = tk.Frame(self.root)
+        rider_entry_frame.pack(fill="x", padx=20, pady=5)
+
+        self.new_rider_name = tk.StringVar()
+
+        tk.Entry(
+            rider_entry_frame,
+            textvariable=self.new_rider_name
+        ).pack(side="left", fill="x", expand=True)
+
+        tk.Button(
+            rider_entry_frame,
+            text="Add Rider",
+            command=self.add_rider
+        ).pack(side="left", padx=5)
+
+        self.riders_listbox = tk.Listbox(
+            self.root,
+            height=9,
+            selectmode=tk.EXTENDED
+        )
+        self.riders_listbox.pack(fill="both", padx=20, pady=5)
+
+        rider_button_frame = tk.Frame(self.root)
+        rider_button_frame.pack(fill="x", padx=20, pady=5)
+
+        tk.Button(
+            rider_button_frame,
+            text="Sort Riders A-Z",
+            command=self.sort_riders
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            rider_button_frame,
+            text="Remove Selected Riders",
+            command=self.remove_selected_riders
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            rider_button_frame,
+            text="Clear All Riders",
+            command=self.clear_all_riders
+        ).pack(side="left", padx=5)
 
         button_frame = tk.Frame(self.root)
         button_frame.pack(fill="x", padx=20, pady=10)
@@ -115,9 +156,95 @@ class HorseShowSchedulerGUI:
 
     def load_existing_riders(self):
         if RIDERS_FILE.exists():
-            riders = RIDERS_FILE.read_text()
-            self.riders_text.delete("1.0", tk.END)
-            self.riders_text.insert(tk.END, riders)
+            riders = [
+                line.strip()
+                for line in RIDERS_FILE.read_text().splitlines()
+                if line.strip()
+            ]
+
+            self.set_rider_lines(riders)
+
+    def get_rider_lines(self):
+        riders = list(self.riders_listbox.get(0, tk.END))
+        return [
+            rider.strip()
+            for rider in riders
+            if rider.strip()
+        ]
+
+    def set_rider_lines(self, riders):
+        self.riders_listbox.delete(0, tk.END)
+
+        for rider in riders:
+            self.riders_listbox.insert(tk.END, rider)
+
+    def add_rider(self):
+        rider = self.new_rider_name.get().strip()
+
+        if not rider:
+            messagebox.showinfo(
+                "Missing Rider Name",
+                "Enter a rider name before clicking Add Rider."
+            )
+            return
+
+        riders = self.get_rider_lines()
+
+        if rider in riders:
+            messagebox.showinfo(
+                "Duplicate Rider",
+                f"{rider} is already in the rider list."
+            )
+            return
+
+        self.riders_listbox.insert(tk.END, rider)
+        self.new_rider_name.set("")
+
+    def sort_riders(self):
+        riders = self.get_rider_lines()
+
+        riders = sorted(
+            riders,
+            key=lambda name: name.lower()
+        )
+
+        self.set_rider_lines(riders)
+
+    def remove_selected_riders(self):
+        selected_indices = list(self.riders_listbox.curselection())
+
+        if not selected_indices:
+            messagebox.showinfo(
+                "No Riders Selected",
+                "Select one or more riders to remove first."
+            )
+            return
+
+        selected_riders = [
+            self.riders_listbox.get(index)
+            for index in selected_indices
+        ]
+
+        confirm = messagebox.askyesno(
+            "Remove Selected Riders",
+            "Remove these riders?\n\n" + "\n".join(selected_riders)
+        )
+
+        if not confirm:
+            return
+
+        # Delete from bottom to top so indexes do not shift.
+        for index in reversed(selected_indices):
+            self.riders_listbox.delete(index)
+
+    def clear_all_riders(self):
+        confirm = messagebox.askyesno(
+            "Clear All Riders",
+            "This will clear the entire rider list.\n\nContinue?"
+        )
+
+        if confirm:
+            self.riders_listbox.delete(0, tk.END)
 
     def choose_ride_time_pdf(self):
         file_path = filedialog.askopenfilename(
@@ -142,12 +269,19 @@ class HorseShowSchedulerGUI:
         self.class_schedule_pdf.set("")
 
     def save_riders(self):
-        riders = self.riders_text.get("1.0", tk.END).strip()
+        riders = self.get_rider_lines()
 
         if not riders:
-            raise ValueError("Please enter at least one rider.")
+            raise ValueError("Please add at least one rider.")
 
-        RIDERS_FILE.write_text(riders + "\n")
+        riders = sorted(
+            riders,
+            key=lambda name: name.lower()
+        )
+
+        self.set_rider_lines(riders)
+
+        RIDERS_FILE.write_text("\n".join(riders) + "\n")
 
     def clear_folder_files(self, folder):
         folder.mkdir(exist_ok=True)
