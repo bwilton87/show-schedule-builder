@@ -28,21 +28,21 @@ class HorseShowSchedulerGUI:
         self.ride_time_pdf = tk.StringVar()
         self.class_schedule_pdf = tk.StringVar()
         self.show_name = tk.StringVar()
+        self.rider_search = tk.StringVar()
+
         self.schedule_generated = False
+        self.available_riders = []
+        self.filtered_available_riders = []
 
         self.show_name.trace_add("write", lambda *args: self.update_checklist())
         self.ride_time_pdf.trace_add("write", lambda *args: self.update_checklist())
         self.class_schedule_pdf.trace_add("write", lambda *args: self.update_checklist())
+        self.rider_search.trace_add("write", lambda *args: self.filter_available_riders())
 
         self.build_interface()
         self.load_existing_riders()
         self.update_checklist()
-
-        self.available_riders = []
-        self.filtered_available_riders = []
-        self.rider_search = tk.StringVar()
-        self.rider_search.trace_add("write", lambda *args: self.filter_available_riders())        
-
+        
     def build_interface(self):
         title = tk.Label(
             self.root,
@@ -451,6 +451,7 @@ class HorseShowSchedulerGUI:
 
         if file_path:
             self.ride_time_pdf.set(file_path)
+            self.load_riders_from_pdf()  # Automatically load riders when a new PDF is selected
 
     def choose_class_schedule_pdf(self):
         file_path = filedialog.askopenfilename(
