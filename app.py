@@ -792,14 +792,17 @@ def export_schedule_xlsx(rides):
     print(f"Formatted Excel schedule exported to: {output_file}")
 
 
-def main():
+def main(class_map_override=None):
     my_riders = load_riders()
 
     if not my_riders:
         print("No riders found. Add riders to riders.txt")
         return
 
-    class_map = build_class_map()
+    if class_map_override is not None:
+        class_map = class_map_override
+    else:
+        class_map = build_class_map()
 
     print(f"Loaded {len(class_map)} class definitions from class schedule PDFs.")
     export_class_map_csv(class_map)

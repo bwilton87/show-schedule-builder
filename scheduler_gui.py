@@ -23,12 +23,18 @@ class HorseShowSchedulerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Horse Show Scheduler")
-        self.root.geometry("850x700")
+        self.root.geometry("950x850")
 
         self.ride_time_pdf = tk.StringVar()
         self.class_schedule_pdf = tk.StringVar()
         self.show_name = tk.StringVar()
         self.rider_search = tk.StringVar()
+
+        self.class_map = {}
+        self.filtered_class_codes = []
+        self.class_search = tk.StringVar()
+        self.selected_class_code = tk.StringVar()
+        self.selected_class_name = tk.StringVar()
 
         self.schedule_generated = False
         self.available_riders = []
@@ -38,11 +44,12 @@ class HorseShowSchedulerGUI:
         self.ride_time_pdf.trace_add("write", lambda *args: self.update_checklist())
         self.class_schedule_pdf.trace_add("write", lambda *args: self.update_checklist())
         self.rider_search.trace_add("write", lambda *args: self.filter_available_riders())
+        self.class_search.trace_add("write", lambda *args: self.filter_class_map())
 
         self.build_interface()
         self.load_existing_riders()
         self.update_checklist()
-        
+
     def build_interface(self):
         title = tk.Label(
             self.root,
@@ -86,6 +93,69 @@ class HorseShowSchedulerGUI:
         tk.Label(class_frame, text="Class Schedule PDF:", width=18, anchor="w").pack(side="left")
         tk.Entry(class_frame, textvariable=self.class_schedule_pdf).pack(side="left", fill="x", expand=True)
         tk.Button(class_frame, text="Choose", command=self.choose_class_schedule_pdf).pack(side="left", padx=5)
+        tk.Button(class_frame, text="Load Classes", command=self.load_classes_from_pdf).pack(side="left", padx=5)
+
+        class_defs_frame = tk.LabelFrame(
+            self.root,
+            text="Class Definitions",
+            padx=10,
+            pady=8
+        )
+        class_defs_frame.pack(fill="both", padx=20, pady=8)
+
+        class_search_frame = tk.Frame(class_defs_frame)
+        class_search_frame.pack(fill="x", pady=3)
+
+        tk.Label(class_search_frame, text="Search Class #:").pack(side="left")
+        tk.Entry(
+            class_search_frame,
+            textvariable=self.class_search
+        ).pack(side="left", fill="x", expand=True, padx=5)
+
+        class_body_frame = tk.Frame(class_defs_frame)
+        class_body_frame.pack(fill="both", expand=True)
+
+        self.class_listbox = tk.Listbox(
+            class_body_frame,
+            height=7,
+            selectmode=tk.SINGLE
+        )
+        self.class_listbox.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        self.class_listbox.bind(
+            "<<ListboxSelect>>",
+            self.on_class_selected
+        )
+
+        class_edit_frame = tk.Frame(class_body_frame)
+        class_edit_frame.pack(side="left", fill="both", expand=True)
+
+        tk.Label(class_edit_frame, text="Class #:").pack(anchor="w")
+        tk.Entry(
+            class_edit_frame,
+            textvariable=self.selected_class_code
+        ).pack(fill="x", pady=(0, 5))
+
+        tk.Label(class_edit_frame, text="Class Name:").pack(anchor="w")
+        tk.Entry(
+            class_edit_frame,
+            textvariable=self.selected_class_name
+        ).pack(fill="x", pady=(0, 5))
+
+        class_button_frame = tk.Frame(class_edit_frame)
+        class_button_frame.pack(fill="x", pady=5)
+
+        tk.Button(
+            class_button_frame,
+            text="Add / Update Class",
+            command=self.add_or_update_class
+        ).pack(side="left", padx=3)
+
+        tk.Button(
+            class_button_frame,
+            text="Remove Selected Class",
+            command=self.remove_selected_class
+        ).pack(side="left", padx=3)
 
         riders_label = tk.Label(
             self.root,
@@ -129,6 +199,11 @@ class HorseShowSchedulerGUI:
             selectmode=tk.EXTENDED
         )
         self.available_riders_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.available_riders_listbox.bind(
+            "<Double-Button-1>",
+            self.add_double_clicked_rider
+        )
 
         selected_frame = tk.LabelFrame(
             rider_lists_frame,
@@ -212,6 +287,139 @@ class HorseShowSchedulerGUI:
 
         self.output_text = scrolledtext.ScrolledText(self.root, height=18)
         self.output_text.pack(fill="both", expand=True, padx=20, pady=5)
+
+    def load_classes_from_pdf(self):
+        class_pdf = Path(self.class_schedule_pdf.get())
+
+        if not class_pdf.exists():
+            messagebox.showerror(
+                "Missing Class Schedule PDF",
+                "Please choose a valid class-schedule PDF first."
+            )
+            return
+
+        try:
+            # Clear the class_schedules folder and copy selected PDF there.
+            self.clear_folder_files(CLASS_SCHEDULES_FOLDER)
+            shutil.copy2(class_pdf, CLASS_SCHEDULES_FOLDER / class_pdf.name)
+
+            self.class_map = app.build_class_map()
+            self.filtered_class_codes = sorted(self.class_map.keys())
+
+            self.refresh_class_listbox()
+
+            messagebox.showinfo(
+                "Classes Loaded",
+                f"Loaded {len(self.class_map)} class definitions from the class schedule PDF."
+            )
+
+            self.update_checklist()
+
+        except Exception as error:
+            messagebox.showerror(
+                "Could Not Read Classes",
+                f"The app could not read class definitions from the selected PDF.\n\n{error}"
+            )
+
+    def refresh_class_listbox(self):
+        if not hasattr(self, "class_listbox"):
+            return
+
+        self.class_listbox.delete(0, tk.END)
+
+        for code in self.filtered_class_codes:
+            class_name = self.class_map.get(code, "")
+            self.class_listbox.insert(tk.END, f"{code} — {class_name}")
+
+    def filter_class_map(self):
+        if not hasattr(self, "class_listbox"):
+            return
+
+        search_text = self.class_search.get().strip().lower()
+
+        codes = sorted(self.class_map.keys())
+
+        if search_text:
+            codes = [
+                code for code in codes
+                if search_text in code.lower()
+                or search_text in self.class_map.get(code, "").lower()
+            ]
+
+        self.filtered_class_codes = codes
+        self.refresh_class_listbox()
+
+    def on_class_selected(self, event=None):
+        selected_indices = list(self.class_listbox.curselection())
+
+        if not selected_indices:
+            return
+
+        selected_text = self.class_listbox.get(selected_indices[0])
+
+        if " — " not in selected_text:
+            return
+
+        code, class_name = selected_text.split(" — ", 1)
+
+        self.selected_class_code.set(code)
+        self.selected_class_name.set(class_name)
+
+    def add_or_update_class(self):
+        code = self.selected_class_code.get().strip()
+        class_name = self.selected_class_name.get().strip()
+
+        if not code:
+            messagebox.showinfo(
+                "Missing Class #",
+                "Enter a class number/code first."
+            )
+            return
+
+        if not class_name:
+            messagebox.showinfo(
+                "Missing Class Name",
+                "Enter a class name first."
+            )
+            return
+
+        self.class_map[code] = class_name
+        self.filter_class_map()
+
+        messagebox.showinfo(
+            "Class Saved",
+            f"{code} was added/updated."
+        )
+
+    def remove_selected_class(self):
+        code = self.selected_class_code.get().strip()
+
+        if not code:
+            messagebox.showinfo(
+                "No Class Selected",
+                "Select a class first."
+            )
+            return
+
+        if code not in self.class_map:
+            messagebox.showinfo(
+                "Class Not Found",
+                f"{code} is not currently in the class list."
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Remove Class",
+            f"Remove this class definition?\n\n{code} — {self.class_map[code]}"
+        )
+
+        if not confirm:
+            return
+
+        del self.class_map[code]
+        self.selected_class_code.set("")
+        self.selected_class_name.set("")
+        self.filter_class_map()
 
     def load_existing_riders(self):
         if RIDERS_FILE.exists():
@@ -316,10 +524,34 @@ class HorseShowSchedulerGUI:
             f"Added {added_count} rider(s) to the selected rider list."
         )
     
+    def add_double_clicked_rider(self, event):
+        selected_index = self.available_riders_listbox.nearest(event.y)
+
+        if selected_index is None:
+            return
+
+        rider = self.available_riders_listbox.get(selected_index)
+
+        if not rider:
+            return
+
+        current_riders = self.get_rider_lines()
+
+        if rider not in current_riders:
+            self.riders_listbox.insert(tk.END, rider)
+            self.sort_riders()
+            self.update_checklist()
+        else:
+            messagebox.showinfo(
+                "Duplicate Rider",
+                f"{rider} is already in the selected rider list."
+            )
+
     def update_checklist(self):
         show_name = self.show_name.get().strip()
         ride_pdf = self.ride_time_pdf.get().strip()
         class_pdf = self.class_schedule_pdf.get().strip()
+        class_count = len(self.class_map)
         rider_count = len(self.get_rider_lines())
 
         lines = []
@@ -338,6 +570,11 @@ class HorseShowSchedulerGUI:
             lines.append("✅ Class-schedule PDF selected")
         else:
             lines.append("⬜ Select class-schedule PDF")
+
+        if class_count > 0:
+            lines.append(f"✅ {class_count} class definition(s) loaded")
+        else:
+            lines.append("⬜ Load class definitions")        
 
         if rider_count > 0:
             lines.append(f"✅ {rider_count} rider(s) selected")
@@ -461,6 +698,7 @@ class HorseShowSchedulerGUI:
 
         if file_path:
             self.class_schedule_pdf.set(file_path)
+            self.load_classes_from_pdf()
 
     def clear_selected_pdfs(self):
         self.ride_time_pdf.set("")
@@ -674,9 +912,11 @@ class HorseShowSchedulerGUI:
 
             app.SHOW_NAME = show_name
 
-            with contextlib.redirect_stdout(captured_output):
-                app.main()
+            if not self.class_map:
+                self.load_classes_from_pdf()
 
+            with contextlib.redirect_stdout(captured_output):
+                app.main(class_map_override=self.class_map)
 
             result_text = captured_output.getvalue()
             friendly_summary = self.build_friendly_summary(result_text)
