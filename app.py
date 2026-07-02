@@ -101,6 +101,17 @@ def extract_lines_from_folder(folder):
 
     return lines
 
+def extract_riders_from_lines(lines):
+    riders = []
+
+    for line in lines:
+        line = line.strip()
+
+        if rider_pattern.match(line):
+            if line not in riders:
+                riders.append(line)
+
+    return sorted(riders, key=lambda name: name.lower())
 
 def clean_class_name(name):
     name = name.strip()

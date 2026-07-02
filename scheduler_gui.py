@@ -28,9 +28,20 @@ class HorseShowSchedulerGUI:
         self.ride_time_pdf = tk.StringVar()
         self.class_schedule_pdf = tk.StringVar()
         self.show_name = tk.StringVar()
+        self.schedule_generated = False
+
+        self.show_name.trace_add("write", lambda *args: self.update_checklist())
+        self.ride_time_pdf.trace_add("write", lambda *args: self.update_checklist())
+        self.class_schedule_pdf.trace_add("write", lambda *args: self.update_checklist())
 
         self.build_interface()
         self.load_existing_riders()
+        self.update_checklist()
+
+        self.available_riders = []
+        self.filtered_available_riders = []
+        self.rider_search = tk.StringVar()
+        self.rider_search.trace_add("write", lambda *args: self.filter_available_riders())        
 
     def build_interface(self):
         title = tk.Label(
@@ -39,6 +50,22 @@ class HorseShowSchedulerGUI:
             font=("Arial", 20, "bold")
         )
         title.pack(pady=10)
+        
+        checklist_frame = tk.LabelFrame(
+            self.root,
+            text="Show Setup Checklist",
+            padx=10,
+            pady=8
+        )
+        checklist_frame.pack(fill="x", padx=20, pady=5)
+
+        self.checklist_label = tk.Label(
+            checklist_frame,
+            text="",
+            justify="left",
+            anchor="w"
+        )
+        self.checklist_label.pack(fill="x")
 
         show_frame = tk.Frame(self.root)
         show_frame.pack(fill="x", padx=20, pady=5)
@@ -62,41 +89,67 @@ class HorseShowSchedulerGUI:
 
         riders_label = tk.Label(
             self.root,
-            text="Riders to include, exactly as shown in the PDF:",
-            anchor="w"
+            text="Riders:",
+            anchor="w",
+            font=("Arial", 12, "bold")
         )
         riders_label.pack(fill="x", padx=20, pady=(15, 3))
 
-        rider_entry_frame = tk.Frame(self.root)
-        rider_entry_frame.pack(fill="x", padx=20, pady=5)
-
-        self.new_rider_name = tk.StringVar()
-
-        tk.Entry(
-            rider_entry_frame,
-            textvariable=self.new_rider_name
-        ).pack(side="left", fill="x", expand=True)
+        rider_load_frame = tk.Frame(self.root)
+        rider_load_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Button(
-            rider_entry_frame,
-            text="Add Rider",
-            command=self.add_rider
+            rider_load_frame,
+            text="Load Riders from Ride-Time PDF",
+            command=self.load_riders_from_pdf
         ).pack(side="left", padx=5)
 
-        self.riders_listbox = tk.Listbox(
-            self.root,
+        tk.Label(
+            rider_load_frame,
+            text="Search:"
+        ).pack(side="left", padx=(20, 5))
+
+        tk.Entry(
+            rider_load_frame,
+            textvariable=self.rider_search
+        ).pack(side="left", fill="x", expand=True)
+
+        rider_lists_frame = tk.Frame(self.root)
+        rider_lists_frame.pack(fill="both", expand=False, padx=20, pady=5)
+
+        available_frame = tk.LabelFrame(
+            rider_lists_frame,
+            text="Possible Riders from PDF"
+        )
+        available_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        self.available_riders_listbox = tk.Listbox(
+            available_frame,
             height=9,
             selectmode=tk.EXTENDED
         )
-        self.riders_listbox.pack(fill="both", padx=20, pady=5)
+        self.available_riders_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+
+        selected_frame = tk.LabelFrame(
+            rider_lists_frame,
+            text="Selected Riders for Schedule"
+        )
+        selected_frame.pack(side="left", fill="both", expand=True)
+
+        self.riders_listbox = tk.Listbox(
+            selected_frame,
+            height=9,
+            selectmode=tk.EXTENDED
+        )
+        self.riders_listbox.pack(fill="both", expand=True, padx=5, pady=5)
 
         rider_button_frame = tk.Frame(self.root)
         rider_button_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Button(
             rider_button_frame,
-            text="Sort Riders A-Z",
-            command=self.sort_riders
+            text="Add Selected Riders",
+            command=self.add_selected_available_riders
         ).pack(side="left", padx=5)
 
         tk.Button(
@@ -107,7 +160,13 @@ class HorseShowSchedulerGUI:
 
         tk.Button(
             rider_button_frame,
-            text="Clear All Riders",
+            text="Sort Selected Riders A-Z",
+            command=self.sort_riders
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            rider_button_frame,
+            text="Clear Selected Riders",
             command=self.clear_all_riders
         ).pack(side="left", padx=5)
 
@@ -164,7 +223,138 @@ class HorseShowSchedulerGUI:
 
             self.set_rider_lines(riders)
 
+    def load_riders_from_pdf(self):
+        ride_pdf = Path(self.ride_time_pdf.get())
+
+        if not ride_pdf.exists():
+            messagebox.showerror(
+                "Missing Ride-Time PDF",
+                "Please choose a valid ride-time PDF first."
+            )
+            return
+
+        try:
+            # Temporarily read directly from the selected PDF.
+            lines = []
+
+            with app.pdfplumber.open(ride_pdf) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if text:
+                        lines.extend(text.split("\n"))
+
+            self.available_riders = app.extract_riders_from_lines(lines)
+            self.filtered_available_riders = self.available_riders[:]
+
+            self.refresh_available_riders_listbox()
+
+            messagebox.showinfo(
+                "Riders Loaded",
+                f"Found {len(self.available_riders)} possible riders in the ride-time PDF."
+            )
+
+            self.update_checklist()
+
+        except Exception as error:
+            messagebox.showerror(
+                "Could Not Read Riders",
+                f"The app could not read riders from the selected PDF.\n\n{error}"
+            )
+
+    def refresh_available_riders_listbox(self):
+        self.available_riders_listbox.delete(0, tk.END)
+
+        for rider in self.filtered_available_riders:
+            self.available_riders_listbox.insert(tk.END, rider)
+
+    def filter_available_riders(self):
+        if not hasattr(self, "available_riders_listbox"):
+            return
+
+        search_text = self.rider_search.get().strip().lower()
+
+        if not search_text:
+            self.filtered_available_riders = self.available_riders[:]
+        else:
+            self.filtered_available_riders = [
+                rider for rider in self.available_riders
+                if search_text in rider.lower()
+            ]
+
+        self.refresh_available_riders_listbox()
+
+    def add_selected_available_riders(self):
+        selected_indices = list(self.available_riders_listbox.curselection())
+
+        if not selected_indices:
+            messagebox.showinfo(
+                "No Riders Selected",
+                "Select one or more riders from the possible rider list first."
+            )
+            return
+
+        selected_riders = [
+            self.available_riders_listbox.get(index)
+            for index in selected_indices
+        ]
+
+        current_riders = self.get_rider_lines()
+
+        added_count = 0
+
+        for rider in selected_riders:
+            if rider not in current_riders:
+                self.riders_listbox.insert(tk.END, rider)
+                current_riders.append(rider)
+                added_count += 1
+
+        self.sort_riders()
+        self.update_checklist()
+
+        messagebox.showinfo(
+            "Riders Added",
+            f"Added {added_count} rider(s) to the selected rider list."
+        )
+    
+    def update_checklist(self):
+        show_name = self.show_name.get().strip()
+        ride_pdf = self.ride_time_pdf.get().strip()
+        class_pdf = self.class_schedule_pdf.get().strip()
+        rider_count = len(self.get_rider_lines())
+
+        lines = []
+
+        if show_name:
+            lines.append("✅ Show name entered")
+        else:
+            lines.append("⬜ Enter show name")
+
+        if ride_pdf:
+            lines.append("✅ Ride-time PDF selected")
+        else:
+            lines.append("⬜ Select ride-time PDF")
+
+        if class_pdf:
+            lines.append("✅ Class-schedule PDF selected")
+        else:
+            lines.append("⬜ Select class-schedule PDF")
+
+        if rider_count > 0:
+            lines.append(f"✅ {rider_count} rider(s) selected")
+        else:
+            lines.append("⬜ Add riders")
+
+        if self.schedule_generated:
+            lines.append("✅ Schedule generated")
+        else:
+            lines.append("⬜ Generate schedule")
+
+        self.checklist_label.config(text="\n".join(lines))
+
     def get_rider_lines(self):
+        if not hasattr(self, "riders_listbox"):
+            return []
+
         riders = list(self.riders_listbox.get(0, tk.END))
         return [
             rider.strip()
@@ -173,10 +363,14 @@ class HorseShowSchedulerGUI:
         ]
 
     def set_rider_lines(self, riders):
+        if not hasattr(self, "riders_listbox"):
+            return
+
         self.riders_listbox.delete(0, tk.END)
 
         for rider in riders:
             self.riders_listbox.insert(tk.END, rider)
+            self.update_checklist()
 
     def add_rider(self):
         rider = self.new_rider_name.get().strip()
@@ -199,6 +393,7 @@ class HorseShowSchedulerGUI:
 
         self.riders_listbox.insert(tk.END, rider)
         self.new_rider_name.set("")
+        self.update_checklist()
 
     def sort_riders(self):
         riders = self.get_rider_lines()
@@ -236,6 +431,7 @@ class HorseShowSchedulerGUI:
         # Delete from bottom to top so indexes do not shift.
         for index in reversed(selected_indices):
             self.riders_listbox.delete(index)
+            self.update_checklist()
 
     def clear_all_riders(self):
         confirm = messagebox.askyesno(
@@ -245,6 +441,7 @@ class HorseShowSchedulerGUI:
 
         if confirm:
             self.riders_listbox.delete(0, tk.END)
+            self.update_checklist()
 
     def choose_ride_time_pdf(self):
         file_path = filedialog.askopenfilename(
@@ -488,6 +685,9 @@ class HorseShowSchedulerGUI:
             self.output_text.insert(tk.END, "\n\n===== DETAILS =====\n")
             self.output_text.insert(tk.END, result_text)
 
+            self.schedule_generated = True
+            self.update_checklist()
+
             if "⚠️" in friendly_summary:
                 messagebox.showwarning(
                     "Schedule Generated with Warnings",
@@ -609,6 +809,9 @@ class HorseShowSchedulerGUI:
         self.show_name.set("")
         self.ride_time_pdf.set("")
         self.class_schedule_pdf.set("")
+
+        self.schedule_generated = False
+        self.update_checklist()
 
         # Force the interface to refresh immediately
         self.root.update_idletasks()
