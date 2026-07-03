@@ -580,6 +580,7 @@ def export_schedule_csv(rides):
             "Day",
             "Ride Time",
             "Ready By / On Horse By",
+            "Coach",
             "Rider",
             "Horse",
             "Class #",
@@ -594,6 +595,7 @@ def export_schedule_csv(rides):
                 r["day"],
                 r["time"],
                 "",
+                r["coach"],
                 r["rider"],
                 r["horse"],
                 r["class"],
@@ -610,6 +612,7 @@ def setup_schedule_sheet(sheet, rides, title):
         "Day",
         "Ride Time",
         "Ready By / On Horse By",
+        "Coach",
         "Rider",
         "Horse",
         "Class #",
@@ -625,7 +628,7 @@ def setup_schedule_sheet(sheet, rides, title):
     sheet["A1"].alignment = Alignment(horizontal="left", vertical="center")
 
     # Merge title across the full table width
-    sheet.merge_cells("A1:J1")
+    sheet.merge_cells("A1:K1")
 
     # Blank spacer row
     sheet.append([])
@@ -638,6 +641,7 @@ def setup_schedule_sheet(sheet, rides, title):
             r["day"],
             r["time"],
             "",
+            r["coach"],
             r["rider"],
             r["horse"],
             r["class"],
@@ -660,7 +664,7 @@ def setup_schedule_sheet(sheet, rides, title):
     sheet.freeze_panes = "A4"
 
     # Auto-filter on table only
-    sheet.auto_filter.ref = f"A3:J{sheet.max_row}"
+    sheet.auto_filter.ref = f"A3:K{sheet.max_row}"
 
     # Column widths
     column_widths = {
@@ -674,6 +678,7 @@ def setup_schedule_sheet(sheet, rides, title):
         "H": 10,
         "I": 34,
         "J": 30,
+        "K": 20,
     }
 
     for column_letter, width in column_widths.items():
@@ -686,8 +691,9 @@ def setup_schedule_sheet(sheet, rides, title):
 
     # Highlight manual entry columns
     for row in range(4, sheet.max_row + 1):
-        sheet[f"C{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
-        sheet[f"J{row}"].fill = PatternFill("solid", fgColor="FFF2CC")
+        sheet[f"C{row}"].fill = PatternFill("solid", fgColor="FFF2CC")  #Ready By / On Horse By
+        sheet[f"D{row}"].fill = PatternFill("solid", fgColor="FFF2CC")  #Coach
+        sheet[f"K{row}"].fill = PatternFill("solid", fgColor="FFF2CC")  #Notes
 
     # Slightly taller title row
     sheet.row_dimensions[1].height = 24
@@ -716,6 +722,7 @@ def export_appsheet_csv(rides):
             "Day",
             "Ride Time",
             "Ready By / On Horse By",
+            "Coach",
             "Rider",
             "Horse",
             "Class #",
@@ -733,6 +740,7 @@ def export_appsheet_csv(rides):
                 r["day"],
                 r["time"],
                 "",                 # Ready By / On Horse By - editable in AppSheet
+                r["coach"],
                 r["rider"],
                 r["horse"],
                 r["class"],

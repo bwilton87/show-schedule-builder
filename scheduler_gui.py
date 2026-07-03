@@ -23,7 +23,7 @@ class HorseShowSchedulerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Horse Show Scheduler")
-        self.root.geometry("950x850")
+        self.root.geometry("1000x850")
 
         self.ride_time_pdf = tk.StringVar()
         self.class_schedule_pdf = tk.StringVar()
@@ -50,16 +50,59 @@ class HorseShowSchedulerGUI:
         self.load_existing_riders()
         self.update_checklist()
 
+    def create_scrollable_container(self):
+        container = tk.Frame(self.root)
+        container.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(container)
+        scrollbar = tk.Scrollbar(
+            container,
+            orient="vertical",
+            command=canvas.yview
+        )
+
+        self.main_frame = tk.Frame(canvas)
+
+        self.main_frame.bind(
+            "<Configure>",
+            lambda event: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas_window = canvas.create_window(
+            (0, 0),
+            window=self.main_frame,
+            anchor="nw"
+        )
+
+        def resize_main_frame(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        canvas.bind("<Configure>", resize_main_frame)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def on_mousewheel(event):
+            if event.delta:
+                direction = -1 if event.delta > 0 else 1
+                canvas.yview_scroll(direction * 3, "units")
+                
     def build_interface(self):
+        self.create_scrollable_container()
+
         title = tk.Label(
-            self.root,
+            self.main_frame,
             text="Horse Show Scheduler",
             font=("Arial", 20, "bold")
         )
         title.pack(pady=10)
         
         checklist_frame = tk.LabelFrame(
-            self.root,
+            self.main_frame,
             text="Show Setup Checklist",
             padx=10,
             pady=8
@@ -74,20 +117,20 @@ class HorseShowSchedulerGUI:
         )
         self.checklist_label.pack(fill="x")
 
-        show_frame = tk.Frame(self.root)
+        show_frame = tk.Frame(self.main_frame)
         show_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(show_frame, text="Show Name:", width=18, anchor="w").pack(side="left")
         tk.Entry(show_frame, textvariable=self.show_name).pack(side="left", fill="x", expand=True)
 
-        ride_frame = tk.Frame(self.root)
+        ride_frame = tk.Frame(self.main_frame)
         ride_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(ride_frame, text="Ride Time PDF:", width=18, anchor="w").pack(side="left")
         tk.Entry(ride_frame, textvariable=self.ride_time_pdf).pack(side="left", fill="x", expand=True)
         tk.Button(ride_frame, text="Choose", command=self.choose_ride_time_pdf).pack(side="left", padx=5)
 
-        class_frame = tk.Frame(self.root)
+        class_frame = tk.Frame(self.main_frame)
         class_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(class_frame, text="Class Schedule PDF:", width=18, anchor="w").pack(side="left")
@@ -96,7 +139,7 @@ class HorseShowSchedulerGUI:
         tk.Button(class_frame, text="Load Classes", command=self.load_classes_from_pdf).pack(side="left", padx=5)
 
         class_defs_frame = tk.LabelFrame(
-            self.root,
+            self.main_frame,
             text="Class Definitions",
             padx=10,
             pady=8
@@ -158,14 +201,14 @@ class HorseShowSchedulerGUI:
         ).pack(side="left", padx=3)
 
         riders_label = tk.Label(
-            self.root,
+            self.main_frame,
             text="Riders:",
             anchor="w",
             font=("Arial", 12, "bold")
         )
         riders_label.pack(fill="x", padx=20, pady=(15, 3))
 
-        rider_load_frame = tk.Frame(self.root)
+        rider_load_frame = tk.Frame(self.main_frame)
         rider_load_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Button(
@@ -184,7 +227,7 @@ class HorseShowSchedulerGUI:
             textvariable=self.rider_search
         ).pack(side="left", fill="x", expand=True)
 
-        rider_lists_frame = tk.Frame(self.root)
+        rider_lists_frame = tk.Frame(self.main_frame)
         rider_lists_frame.pack(fill="both", expand=False, padx=20, pady=5)
 
         available_frame = tk.LabelFrame(
@@ -218,7 +261,7 @@ class HorseShowSchedulerGUI:
         )
         self.riders_listbox.pack(fill="both", expand=True, padx=5, pady=5)
 
-        rider_button_frame = tk.Frame(self.root)
+        rider_button_frame = tk.Frame(self.main_frame)
         rider_button_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Button(
@@ -245,7 +288,7 @@ class HorseShowSchedulerGUI:
             command=self.clear_all_riders
         ).pack(side="left", padx=5)
 
-        button_frame = tk.Frame(self.root)
+        button_frame = tk.Frame(self.main_frame)
         button_frame.pack(fill="x", padx=20, pady=10)
 
         tk.Button(
@@ -279,13 +322,13 @@ class HorseShowSchedulerGUI:
         ).pack(side="left", padx=5)
 
         output_label = tk.Label(
-            self.root,
+            self.main_frame,
             text="Status / Validation Output:",
             anchor="w"
         )
         output_label.pack(fill="x", padx=20, pady=(10, 3))
 
-        self.output_text = scrolledtext.ScrolledText(self.root, height=18)
+        self.output_text = scrolledtext.ScrolledText(self.main_frame, height=18)
         self.output_text.pack(fill="both", expand=True, padx=20, pady=5)
 
     def load_classes_from_pdf(self):
