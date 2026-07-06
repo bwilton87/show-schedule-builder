@@ -39,6 +39,8 @@ class HorseShowSchedulerGUI:
         self.schedule_generated = False
         self.available_riders = []
         self.filtered_available_riders = []
+        self.ride_time_lines = []
+        self.rider_ride_counts = {}
         self.trackpad_scroll_delta = 0
         self.trackpad_scroll_threshold = 8
         self.global_scroll_bindings_installed = False
@@ -385,7 +387,7 @@ class HorseShowSchedulerGUI:
 
         selected_frame = tk.LabelFrame(
             rider_lists_frame,
-            text="Selected Riders for Schedule"
+            text="Selected Riders for Schedule (Ride Counts)"
         )
         selected_frame.pack(side="left", fill="both", expand=True)
 
@@ -632,10 +634,13 @@ class HorseShowSchedulerGUI:
                     if text:
                         lines.extend(text.split("\n"))
 
+            self.ride_time_lines = lines
             self.available_riders = app.extract_riders_from_lines(lines)
+            self.rider_ride_counts = self.count_rides_by_rider(lines)
             self.filtered_available_riders = self.available_riders[:]
 
             self.refresh_available_riders_listbox()
+            self.refresh_selected_riders_listbox()
 
             messagebox.showinfo(
                 "Riders Loaded",
@@ -654,7 +659,10 @@ class HorseShowSchedulerGUI:
         self.available_riders_listbox.delete(0, tk.END)
 
         for rider in self.filtered_available_riders:
-            self.available_riders_listbox.insert(tk.END, rider)
+            self.available_riders_listbox.insert(
+                tk.END,
+                self.format_rider_with_count(rider)
+            )
 
     def filter_available_riders(self):
         if not hasattr(self, "available_riders_listbox"):
@@ -672,6 +680,62 @@ class HorseShowSchedulerGUI:
 
         self.refresh_available_riders_listbox()
 
+    def count_rides_by_rider(self, lines):
+        counts = {}
+        current_rider = None
+
+        for line in lines:
+            line = line.strip()
+
+            if app.rider_pattern.match(line):
+                current_rider = line
+                counts.setdefault(current_rider, 0)
+                continue
+
+            if current_rider and app.ride_pattern.match(line):
+                counts[current_rider] = counts.get(current_rider, 0) + 1
+
+        return counts
+
+    def format_rider_with_count(self, rider):
+        count = self.rider_ride_counts.get(rider)
+
+        if count is None:
+            return rider
+
+        ride_word = "ride" if count == 1 else "rides"
+        return f"{rider} ({count} {ride_word})"
+
+    def format_selected_rider(self, rider):
+        return self.format_rider_with_count(rider)
+
+    def clean_rider_text(self, rider_text):
+        rider_text = rider_text.strip()
+
+        if " (" not in rider_text or not rider_text.endswith(")"):
+            return rider_text
+
+        name, suffix = rider_text.rsplit(" (", 1)
+
+        if suffix.endswith(" ride)") or suffix.endswith(" rides)"):
+            return name.strip()
+
+        return rider_text
+
+    def clean_selected_rider_text(self, rider_text):
+        return self.clean_rider_text(rider_text)
+
+    def refresh_selected_riders_listbox(self):
+        if not hasattr(self, "riders_listbox"):
+            return
+
+        selected_riders = self.get_rider_lines()
+
+        self.riders_listbox.delete(0, tk.END)
+
+        for rider in selected_riders:
+            self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
+
     def add_selected_available_riders(self):
         selected_indices = list(self.available_riders_listbox.curselection())
 
@@ -683,7 +747,7 @@ class HorseShowSchedulerGUI:
             return
 
         selected_riders = [
-            self.available_riders_listbox.get(index)
+            self.clean_rider_text(self.available_riders_listbox.get(index))
             for index in selected_indices
         ]
 
@@ -693,7 +757,7 @@ class HorseShowSchedulerGUI:
 
         for rider in selected_riders:
             if rider not in current_riders:
-                self.riders_listbox.insert(tk.END, rider)
+                self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
                 current_riders.append(rider)
                 added_count += 1
 
@@ -711,7 +775,9 @@ class HorseShowSchedulerGUI:
         if selected_index is None:
             return
 
-        rider = self.available_riders_listbox.get(selected_index)
+        rider = self.clean_rider_text(
+            self.available_riders_listbox.get(selected_index)
+        )
 
         if not rider:
             return
@@ -719,7 +785,7 @@ class HorseShowSchedulerGUI:
         current_riders = self.get_rider_lines()
 
         if rider not in current_riders:
-            self.riders_listbox.insert(tk.END, rider)
+            self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
             self.sort_riders()
             self.update_checklist()
         else:
@@ -808,9 +874,9 @@ class HorseShowSchedulerGUI:
 
         riders = list(self.riders_listbox.get(0, tk.END))
         return [
-            rider.strip()
+            self.clean_selected_rider_text(rider)
             for rider in riders
-            if rider.strip()
+            if self.clean_selected_rider_text(rider)
         ]
 
     def set_rider_lines(self, riders):
@@ -820,7 +886,7 @@ class HorseShowSchedulerGUI:
         self.riders_listbox.delete(0, tk.END)
 
         for rider in riders:
-            self.riders_listbox.insert(tk.END, rider)
+            self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
             self.update_checklist()
 
     def add_rider(self):
@@ -842,7 +908,7 @@ class HorseShowSchedulerGUI:
             )
             return
 
-        self.riders_listbox.insert(tk.END, rider)
+        self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
         self.new_rider_name.set("")
         self.update_checklist()
 
