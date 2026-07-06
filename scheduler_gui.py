@@ -39,6 +39,9 @@ class HorseShowSchedulerGUI:
         self.schedule_generated = False
         self.available_riders = []
         self.filtered_available_riders = []
+        self.trackpad_scroll_delta = 0
+        self.trackpad_scroll_threshold = 8
+        self.global_scroll_bindings_installed = False
 
         self.show_name.trace_add("write", lambda *args: self.update_checklist())
         self.ride_time_pdf.trace_add("write", lambda *args: self.update_checklist())
@@ -54,7 +57,9 @@ class HorseShowSchedulerGUI:
         container = tk.Frame(self.root)
         container.pack(fill="both", expand=True)
 
-        canvas = tk.Canvas(container)
+        self.canvas = tk.Canvas(container, takefocus=1)
+        canvas = self.canvas
+
         scrollbar = tk.Scrollbar(
             container,
             orient="vertical",
@@ -63,22 +68,19 @@ class HorseShowSchedulerGUI:
 
         self.main_frame = tk.Frame(canvas)
 
-        self.main_frame.bind(
-            "<Configure>",
-            lambda event: canvas.configure(
-                scrollregion=canvas.bbox("all")
-            )
-        )
-
         canvas_window = canvas.create_window(
             (0, 0),
             window=self.main_frame,
             anchor="nw"
         )
 
+        def update_scroll_region(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
         def resize_main_frame(event):
             canvas.itemconfig(canvas_window, width=event.width)
 
+        self.main_frame.bind("<Configure>", update_scroll_region)
         canvas.bind("<Configure>", resize_main_frame)
 
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -86,10 +88,99 @@ class HorseShowSchedulerGUI:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        def on_mousewheel(event):
-            if event.delta:
-                direction = -1 if event.delta > 0 else 1
-                canvas.yview_scroll(direction * 3, "units")
+        self.root.bind("<FocusIn>", lambda event: self.focus_scroll_area(), add="+")
+        self.root.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
+        container.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
+        self.main_frame.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
+        canvas.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
+
+    def focus_scroll_area(self):
+        if hasattr(self, "canvas"):
+            self.canvas.focus_force()
+
+    def scroll_main_canvas(self, event):
+        delta = getattr(event, "delta", 0)
+
+        if not delta:
+            return None
+
+        if abs(delta) >= 120:
+            scroll_units = -int(delta / 120)
+        else:
+            self.trackpad_scroll_delta += delta
+
+            if abs(self.trackpad_scroll_delta) < self.trackpad_scroll_threshold:
+                return "break"
+
+            threshold_steps = int(
+                self.trackpad_scroll_delta / self.trackpad_scroll_threshold
+            )
+            self.trackpad_scroll_delta -= (
+                threshold_steps * self.trackpad_scroll_threshold
+            )
+            scroll_units = -threshold_steps
+
+        self.canvas.yview_scroll(scroll_units, "units")
+        return "break"
+
+    def scroll_main_canvas_up(self, event):
+        self.canvas.yview_scroll(-1, "units")
+        return "break"
+
+    def scroll_main_canvas_down(self, event):
+        self.canvas.yview_scroll(1, "units")
+        return "break"
+
+    def scroll_main_canvas_key(self, event):
+        key_scroll_units = {
+            "Up": -3,
+            "Down": 3,
+            "Prior": -10,
+            "Next": 10,
+        }
+
+        scroll_units = key_scroll_units.get(event.keysym)
+
+        if scroll_units is None:
+            return None
+
+        self.canvas.yview_scroll(scroll_units, "units")
+        return "break"
+
+    def install_scroll_bindings(self, widget):
+        wheel_events = (
+            "<MouseWheel>",
+            "<Shift-MouseWheel>",
+            "<Option-MouseWheel>",
+            "<Command-MouseWheel>",
+            "<Control-MouseWheel>",
+        )
+
+        for wheel_event in wheel_events:
+            widget.bind(wheel_event, self.scroll_main_canvas, add="+")
+
+        widget.bind("<Button-4>", self.scroll_main_canvas_up, add="+")
+        widget.bind("<Button-5>", self.scroll_main_canvas_down, add="+")
+        widget.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
+        widget.bind("<Up>", self.scroll_main_canvas_key, add="+")
+        widget.bind("<Down>", self.scroll_main_canvas_key, add="+")
+        widget.bind("<Prior>", self.scroll_main_canvas_key, add="+")
+        widget.bind("<Next>", self.scroll_main_canvas_key, add="+")
+
+        if not self.global_scroll_bindings_installed:
+            for wheel_event in wheel_events:
+                self.root.bind_class("all", wheel_event, self.scroll_main_canvas, add="+")
+
+            self.root.bind_class("all", "<Button-4>", self.scroll_main_canvas_up, add="+")
+            self.root.bind_class("all", "<Button-5>", self.scroll_main_canvas_down, add="+")
+            self.root.bind_class("all", "<Up>", self.scroll_main_canvas_key, add="+")
+            self.root.bind_class("all", "<Down>", self.scroll_main_canvas_key, add="+")
+            self.root.bind_class("all", "<Prior>", self.scroll_main_canvas_key, add="+")
+            self.root.bind_class("all", "<Next>", self.scroll_main_canvas_key, add="+")
+            self.global_scroll_bindings_installed = True
+
+        for child in widget.winfo_children():
+            self.install_scroll_bindings(child)
 
     def set_status_icon(self, label, is_complete, complete_text="✅", incomplete_text="⬜"):
         if is_complete:
@@ -374,6 +465,9 @@ class HorseShowSchedulerGUI:
 
         self.output_text = scrolledtext.ScrolledText(self.main_frame, height=18)
         self.output_text.pack(fill="both", expand=True, padx=20, pady=5)
+
+        self.install_scroll_bindings(self.root)
+        self.root.after(100, self.focus_scroll_area)
 
     def load_classes_from_pdf(self):
         class_pdf = Path(self.class_schedule_pdf.get())
