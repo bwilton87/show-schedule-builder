@@ -90,7 +90,13 @@ class HorseShowSchedulerGUI:
             if event.delta:
                 direction = -1 if event.delta > 0 else 1
                 canvas.yview_scroll(direction * 3, "units")
-                
+
+    def set_status_icon(self, label, is_complete, complete_text="✅", incomplete_text="⬜"):
+        if is_complete:
+            label.config(text=complete_text, fg="green")
+        else:
+            label.config(text=incomplete_text, fg="gray")
+
     def build_interface(self):
         self.create_scrollable_container()
 
@@ -123,12 +129,16 @@ class HorseShowSchedulerGUI:
         tk.Label(show_frame, text="Show Name:", width=18, anchor="w").pack(side="left")
         tk.Entry(show_frame, textvariable=self.show_name).pack(side="left", fill="x", expand=True)
 
-        ride_frame = tk.Frame(self.main_frame)
-        ride_frame.pack(fill="x", padx=20, pady=5)
+        self.show_name_status = tk.Label(show_frame, text="⬜", width=4)
+        self.show_name_status.pack(side="left", padx=5)
 
-        tk.Label(ride_frame, text="Ride Time PDF:", width=18, anchor="w").pack(side="left")
-        tk.Entry(ride_frame, textvariable=self.ride_time_pdf).pack(side="left", fill="x", expand=True)
-        tk.Button(ride_frame, text="Choose", command=self.choose_ride_time_pdf).pack(side="left", padx=5)
+        class_label = tk.Label(
+            self.main_frame,
+            text="Classes:",
+            anchor="w",
+            font=("Arial", 12, "bold")
+        )
+        class_label.pack(fill="x", padx=20, pady=(15, 3))
 
         class_frame = tk.Frame(self.main_frame)
         class_frame.pack(fill="x", padx=20, pady=5)
@@ -138,6 +148,9 @@ class HorseShowSchedulerGUI:
         tk.Button(class_frame, text="Choose", command=self.choose_class_schedule_pdf).pack(side="left", padx=5)
         tk.Button(class_frame, text="Load Classes", command=self.load_classes_from_pdf).pack(side="left", padx=5)
 
+        self.class_pdf_status = tk.Label(class_frame, text="⬜", width=4)
+        self.class_pdf_status.pack(side="left", padx=5)
+        
         class_defs_frame = tk.LabelFrame(
             self.main_frame,
             text="Class Definitions",
@@ -145,6 +158,17 @@ class HorseShowSchedulerGUI:
             pady=8
         )
         class_defs_frame.pack(fill="both", padx=20, pady=8)
+
+        class_defs_status_frame = tk.Frame(class_defs_frame)
+        class_defs_status_frame.pack(fill="x", pady=(0, 5))
+
+        self.class_defs_status = tk.Label(
+            class_defs_status_frame,
+            text="⬜ No class definitions loaded",
+            anchor="w",
+            fg="gray"
+        )
+        self.class_defs_status.pack(side="left", fill="x", expand=True)        
 
         class_search_frame = tk.Frame(class_defs_frame)
         class_search_frame.pack(fill="x", pady=3)
@@ -200,13 +224,33 @@ class HorseShowSchedulerGUI:
             command=self.remove_selected_class
         ).pack(side="left", padx=3)
 
-        riders_label = tk.Label(
-            self.main_frame,
+        riders_header_frame = tk.Frame(self.main_frame)
+        riders_header_frame.pack(fill="x", padx=20, pady=(15, 3))
+
+        tk.Label(
+            riders_header_frame,
             text="Riders:",
             anchor="w",
             font=("Arial", 12, "bold")
+        ).pack(side="left")
+
+        self.riders_status = tk.Label(
+            riders_header_frame,
+            text="⬜ No riders selected",
+            anchor="w",
+            fg="gray"
         )
-        riders_label.pack(fill="x", padx=20, pady=(15, 3))
+        self.riders_status.pack(side="left", padx=10)
+
+        ride_frame = tk.Frame(self.main_frame)
+        ride_frame.pack(fill="x", padx=20, pady=5)
+
+        tk.Label(ride_frame, text="Ride Time PDF:", width=18, anchor="w").pack(side="left")
+        tk.Entry(ride_frame, textvariable=self.ride_time_pdf).pack(side="left", fill="x", expand=True)
+        tk.Button(ride_frame, text="Choose", command=self.choose_ride_time_pdf).pack(side="left", padx=5)
+
+        self.ride_pdf_status = tk.Label(ride_frame, text="⬜", width=4)
+        self.ride_pdf_status.pack(side="left", padx=5)
 
         rider_load_frame = tk.Frame(self.main_frame)
         rider_load_frame.pack(fill="x", padx=20, pady=5)
@@ -596,6 +640,39 @@ class HorseShowSchedulerGUI:
         class_pdf = self.class_schedule_pdf.get().strip()
         class_count = len(self.class_map)
         rider_count = len(self.get_rider_lines())
+
+        if hasattr(self, "show_name_status"):
+            self.set_status_icon(self.show_name_status, bool(show_name))
+
+        if hasattr(self, "ride_pdf_status"):
+            self.set_status_icon(self.ride_pdf_status, bool(ride_pdf))
+
+        if hasattr(self, "class_pdf_status"):
+            self.set_status_icon(self.class_pdf_status, bool(class_pdf))
+
+        if hasattr(self, "class_defs_status"):
+            if class_count > 0:
+                self.class_defs_status.config(
+                    text=f"✅ {class_count} class definition(s) loaded",
+                    fg="green"
+                )
+            else:
+                self.class_defs_status.config(
+                    text="⬜ No class definitions loaded",
+                    fg="gray"
+                )
+
+        if hasattr(self, "riders_status"):
+            if rider_count > 0:
+                self.riders_status.config(
+                    text=f"✅ {rider_count} rider(s) selected",
+                    fg="green"
+                )
+            else:
+                self.riders_status.config(
+                    text="⬜ No riders selected",
+                    fg="gray"
+                )
 
         lines = []
 

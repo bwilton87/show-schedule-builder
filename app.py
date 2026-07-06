@@ -422,12 +422,15 @@ def parse_rides(lines, my_riders, class_map):
                 "rider": current_rider,
                 "day": day,
                 "time": time,
+                "ready_by": "",
+                "coach": "",
                 "class": class_code,
                 "class_name": class_name,
                 "horse": horse,
                 "arena": arena,
                 "arena_number": arena_number,
                 "arena_name": arena_name,
+                "notes": "",
                 "raw": line
             })
 
@@ -594,7 +597,7 @@ def export_schedule_csv(rides):
             writer.writerow([
                 r["day"],
                 r["time"],
-                "",
+                r["ready_by"],
                 r["coach"],
                 r["rider"],
                 r["horse"],
@@ -602,7 +605,7 @@ def export_schedule_csv(rides):
                 r["class_name"],
                 r["arena_number"],
                 r["arena_name"],
-                ""
+                r["notes"]
             ])
 
     print(f"\nSchedule exported to: {output_file}")
@@ -640,7 +643,7 @@ def setup_schedule_sheet(sheet, rides, title):
         sheet.append([
             r["day"],
             r["time"],
-            "",
+            r["ready_by"],
             r["coach"],
             r["rider"],
             r["horse"],
@@ -648,7 +651,7 @@ def setup_schedule_sheet(sheet, rides, title):
             r["class_name"],
             r["arena_number"],
             r["arena_name"],
-            ""
+            r["notes"]
         ])
 
     # Header formatting
@@ -673,12 +676,13 @@ def setup_schedule_sheet(sheet, rides, title):
         "C": 22,
         "D": 24,
         "E": 24,
-        "F": 12,
-        "G": 38,
-        "H": 10,
-        "I": 34,
-        "J": 30,
-        "K": 20,
+        "F": 24,
+        "G": 12,
+        "H": 38,
+        "I": 10,
+        "J": 34,
+        "K": 30,
+        "L": 20,
     }
 
     for column_letter, width in column_widths.items():
