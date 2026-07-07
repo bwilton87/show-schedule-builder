@@ -31,7 +31,11 @@ class HorseShowSchedulerGUI:
         self.rider_search = tk.StringVar()
 
         self.class_map = {}
+        self.ride_time_class_map = {}
+        self.class_schedule_class_map = {}
         self.filtered_class_codes = []
+        self.used_class_codes = set()
+        self.missing_class_codes = []
         self.class_search = tk.StringVar()
         self.selected_class_code = tk.StringVar()
         self.selected_class_name = tk.StringVar()
@@ -42,17 +46,30 @@ class HorseShowSchedulerGUI:
         self.ride_time_lines = []
         self.rider_ride_counts = {}
         self.trackpad_scroll_delta = 0
+        self.widget_scroll_deltas = {}
         self.trackpad_scroll_threshold = 8
         self.global_scroll_bindings_installed = False
 
         self.show_name.trace_add("write", lambda *args: self.update_checklist())
-        self.ride_time_pdf.trace_add("write", lambda *args: self.update_checklist())
-        self.class_schedule_pdf.trace_add("write", lambda *args: self.update_checklist())
+        self.ride_time_pdf.trace_add("write", lambda *args: self.on_ride_pdf_changed())
+        self.class_schedule_pdf.trace_add("write", lambda *args: self.on_class_pdf_changed())
         self.rider_search.trace_add("write", lambda *args: self.filter_available_riders())
         self.class_search.trace_add("write", lambda *args: self.filter_class_map())
 
         self.build_interface()
         self.load_existing_riders()
+        self.update_checklist()
+
+    def on_ride_pdf_changed(self):
+        if not self.ride_time_pdf.get().strip():
+            self.clear_ride_time_data()
+
+        self.update_checklist()
+
+    def on_class_pdf_changed(self):
+        if not self.class_schedule_pdf.get().strip():
+            self.clear_class_data()
+
         self.update_checklist()
 
     def create_scrollable_container(self):
@@ -90,13 +107,24 @@ class HorseShowSchedulerGUI:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        self.root.bind("<FocusIn>", lambda event: self.focus_scroll_area(), add="+")
-        self.root.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
-        container.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
-        self.main_frame.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
-        canvas.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
+        self.root.bind("<FocusIn>", self.focus_scroll_area, add="+")
+        self.root.bind("<Enter>", self.focus_scroll_area, add="+")
+        container.bind("<Enter>", self.focus_scroll_area, add="+")
+        self.main_frame.bind("<Enter>", self.focus_scroll_area, add="+")
+        canvas.bind("<Enter>", self.focus_scroll_area, add="+")
 
-    def focus_scroll_area(self):
+    def should_preserve_widget_focus(self, widget):
+        return isinstance(widget, (tk.Entry, tk.Listbox, tk.Text))
+
+    def focus_scroll_area(self, event=None):
+        if event is not None and self.should_preserve_widget_focus(event.widget):
+            return
+
+        focused_widget = self.root.focus_get()
+
+        if focused_widget is not None and self.should_preserve_widget_focus(focused_widget):
+            return
+
         if hasattr(self, "canvas"):
             self.canvas.focus_force()
 
@@ -133,6 +161,39 @@ class HorseShowSchedulerGUI:
         self.canvas.yview_scroll(1, "units")
         return "break"
 
+    def scroll_widget(self, event, widget):
+        delta = getattr(event, "delta", 0)
+
+        if not delta:
+            return None
+
+        if abs(delta) >= 120:
+            scroll_units = -int(delta / 120)
+        else:
+            widget_key = str(widget)
+            current_delta = self.widget_scroll_deltas.get(widget_key, 0) + delta
+
+            if abs(current_delta) < self.trackpad_scroll_threshold:
+                self.widget_scroll_deltas[widget_key] = current_delta
+                return "break"
+
+            threshold_steps = int(current_delta / self.trackpad_scroll_threshold)
+            self.widget_scroll_deltas[widget_key] = (
+                current_delta - (threshold_steps * self.trackpad_scroll_threshold)
+            )
+            scroll_units = -threshold_steps
+
+        widget.yview_scroll(scroll_units, "units")
+        return "break"
+
+    def scroll_widget_up(self, event, widget):
+        widget.yview_scroll(-1, "units")
+        return "break"
+
+    def scroll_widget_down(self, event, widget):
+        widget.yview_scroll(1, "units")
+        return "break"
+
     def scroll_main_canvas_key(self, event):
         key_scroll_units = {
             "Up": -3,
@@ -159,15 +220,42 @@ class HorseShowSchedulerGUI:
         )
 
         for wheel_event in wheel_events:
-            widget.bind(wheel_event, self.scroll_main_canvas, add="+")
+            if isinstance(widget, (tk.Listbox, tk.Text)):
+                widget.bind(
+                    wheel_event,
+                    lambda event, target=widget: self.scroll_widget(event, target),
+                    add="+"
+                )
+            else:
+                widget.bind(wheel_event, self.scroll_main_canvas, add="+")
 
-        widget.bind("<Button-4>", self.scroll_main_canvas_up, add="+")
-        widget.bind("<Button-5>", self.scroll_main_canvas_down, add="+")
-        widget.bind("<Enter>", lambda event: self.focus_scroll_area(), add="+")
-        widget.bind("<Up>", self.scroll_main_canvas_key, add="+")
-        widget.bind("<Down>", self.scroll_main_canvas_key, add="+")
-        widget.bind("<Prior>", self.scroll_main_canvas_key, add="+")
-        widget.bind("<Next>", self.scroll_main_canvas_key, add="+")
+        if isinstance(widget, (tk.Listbox, tk.Text)):
+            widget.bind(
+                "<Button-4>",
+                lambda event, target=widget: self.scroll_widget_up(event, target),
+                add="+"
+            )
+            widget.bind(
+                "<Button-5>",
+                lambda event, target=widget: self.scroll_widget_down(event, target),
+                add="+"
+            )
+            widget.bind(
+                "<Enter>",
+                lambda event, target=widget: target.focus_set(),
+                add="+"
+            )
+        elif isinstance(widget, tk.Entry):
+            widget.bind("<Button-4>", self.scroll_main_canvas_up, add="+")
+            widget.bind("<Button-5>", self.scroll_main_canvas_down, add="+")
+        else:
+            widget.bind("<Button-4>", self.scroll_main_canvas_up, add="+")
+            widget.bind("<Button-5>", self.scroll_main_canvas_down, add="+")
+            widget.bind("<Enter>", self.focus_scroll_area, add="+")
+            widget.bind("<Up>", self.scroll_main_canvas_key, add="+")
+            widget.bind("<Down>", self.scroll_main_canvas_key, add="+")
+            widget.bind("<Prior>", self.scroll_main_canvas_key, add="+")
+            widget.bind("<Next>", self.scroll_main_canvas_key, add="+")
 
         if not self.global_scroll_bindings_installed:
             for wheel_event in wheel_events:
@@ -189,6 +277,75 @@ class HorseShowSchedulerGUI:
             label.config(text=complete_text, fg="green")
         else:
             label.config(text=incomplete_text, fg="gray")
+
+    def create_prompt_entry(self, parent, textvariable, prompt, **entry_options):
+        entry = tk.Entry(parent, **entry_options)
+        normal_fg = entry.cget("fg")
+        prompt_fg = "gray"
+        state = {
+            "showing_prompt": False,
+            "syncing": False,
+        }
+
+        def show_prompt():
+            if textvariable.get():
+                return
+
+            state["showing_prompt"] = True
+            entry.config(fg=prompt_fg)
+            entry.delete(0, tk.END)
+            entry.insert(0, prompt)
+
+        def hide_prompt():
+            if not state["showing_prompt"]:
+                return
+
+            state["showing_prompt"] = False
+            entry.config(fg=normal_fg)
+            entry.delete(0, tk.END)
+
+        def sync_from_variable(*args):
+            if state["syncing"]:
+                return
+
+            value = textvariable.get()
+
+            if not value:
+                if entry.focus_get() == entry:
+                    hide_prompt()
+                else:
+                    show_prompt()
+                return
+
+            state["showing_prompt"] = False
+            entry.config(fg=normal_fg)
+            entry.delete(0, tk.END)
+            entry.insert(0, value)
+
+        def sync_to_variable(event=None):
+            if state["showing_prompt"]:
+                return
+
+            state["syncing"] = True
+            textvariable.set(entry.get())
+            state["syncing"] = False
+
+        def on_focus_in(event):
+            hide_prompt()
+
+        def on_focus_out(event):
+            sync_to_variable()
+
+            if not textvariable.get():
+                show_prompt()
+
+        entry.bind("<FocusIn>", on_focus_in)
+        entry.bind("<FocusOut>", on_focus_out)
+        entry.bind("<KeyRelease>", sync_to_variable)
+        textvariable.trace_add("write", sync_from_variable)
+        show_prompt()
+
+        return entry
 
     def build_interface(self):
         self.create_scrollable_container()
@@ -220,26 +377,43 @@ class HorseShowSchedulerGUI:
         show_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(show_frame, text="Show Name:", width=18, anchor="w").pack(side="left")
-        tk.Entry(show_frame, textvariable=self.show_name).pack(side="left", fill="x", expand=True)
+        self.create_prompt_entry(
+            show_frame,
+            self.show_name,
+            "Enter show name for output files"
+        ).pack(side="left", fill="x", expand=True)
 
         self.show_name_status = tk.Label(show_frame, text="⬜", width=4)
         self.show_name_status.pack(side="left", padx=5)
 
-        class_label = tk.Label(
-            self.main_frame,
+        classes_header_frame = tk.Frame(self.main_frame)
+        classes_header_frame.pack(fill="x", padx=20, pady=(15, 3))
+
+        tk.Label(
+            classes_header_frame,
             text="Classes:",
             anchor="w",
             font=("Arial", 12, "bold")
+        ).pack(side="left")
+
+        self.class_defs_status = tk.Label(
+            classes_header_frame,
+            text="⬜ No class definitions loaded",
+            anchor="w",
+            fg="gray"
         )
-        class_label.pack(fill="x", padx=20, pady=(15, 3))
+        self.class_defs_status.pack(side="left", padx=10)
 
         class_frame = tk.Frame(self.main_frame)
         class_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(class_frame, text="Class Schedule PDF:", width=18, anchor="w").pack(side="left")
-        tk.Entry(class_frame, textvariable=self.class_schedule_pdf).pack(side="left", fill="x", expand=True)
+        self.create_prompt_entry(
+            class_frame,
+            self.class_schedule_pdf,
+            "Choose class schedule PDF"
+        ).pack(side="left", fill="x", expand=True)
         tk.Button(class_frame, text="Choose", command=self.choose_class_schedule_pdf).pack(side="left", padx=5)
-        tk.Button(class_frame, text="Load Classes", command=self.load_classes_from_pdf).pack(side="left", padx=5)
 
         self.class_pdf_status = tk.Label(class_frame, text="⬜", width=4)
         self.class_pdf_status.pack(side="left", padx=5)
@@ -252,24 +426,14 @@ class HorseShowSchedulerGUI:
         )
         class_defs_frame.pack(fill="both", padx=20, pady=8)
 
-        class_defs_status_frame = tk.Frame(class_defs_frame)
-        class_defs_status_frame.pack(fill="x", pady=(0, 5))
-
-        self.class_defs_status = tk.Label(
-            class_defs_status_frame,
-            text="⬜ No class definitions loaded",
-            anchor="w",
-            fg="gray"
-        )
-        self.class_defs_status.pack(side="left", fill="x", expand=True)        
-
         class_search_frame = tk.Frame(class_defs_frame)
         class_search_frame.pack(fill="x", pady=3)
 
-        tk.Label(class_search_frame, text="Search Class #:").pack(side="left")
-        tk.Entry(
+        tk.Label(class_search_frame, text="Search Class # or Name:").pack(side="left")
+        self.create_prompt_entry(
             class_search_frame,
-            textvariable=self.class_search
+            self.class_search,
+            "Type class number or class name"
         ).pack(side="left", fill="x", expand=True, padx=5)
 
         class_body_frame = tk.Frame(class_defs_frame)
@@ -291,15 +455,17 @@ class HorseShowSchedulerGUI:
         class_edit_frame.pack(side="left", fill="both", expand=True)
 
         tk.Label(class_edit_frame, text="Class #:").pack(anchor="w")
-        tk.Entry(
+        self.create_prompt_entry(
             class_edit_frame,
-            textvariable=self.selected_class_code
+            self.selected_class_code,
+            "Class number/code"
         ).pack(fill="x", pady=(0, 5))
 
         tk.Label(class_edit_frame, text="Class Name:").pack(anchor="w")
-        tk.Entry(
+        self.create_prompt_entry(
             class_edit_frame,
-            textvariable=self.selected_class_name
+            self.selected_class_name,
+            "Class name to save"
         ).pack(fill="x", pady=(0, 5))
 
         class_button_frame = tk.Frame(class_edit_frame)
@@ -339,29 +505,28 @@ class HorseShowSchedulerGUI:
         ride_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(ride_frame, text="Ride Time PDF:", width=18, anchor="w").pack(side="left")
-        tk.Entry(ride_frame, textvariable=self.ride_time_pdf).pack(side="left", fill="x", expand=True)
+        self.create_prompt_entry(
+            ride_frame,
+            self.ride_time_pdf,
+            "Choose ride-time PDF"
+        ).pack(side="left", fill="x", expand=True)
         tk.Button(ride_frame, text="Choose", command=self.choose_ride_time_pdf).pack(side="left", padx=5)
 
         self.ride_pdf_status = tk.Label(ride_frame, text="⬜", width=4)
         self.ride_pdf_status.pack(side="left", padx=5)
 
-        rider_load_frame = tk.Frame(self.main_frame)
-        rider_load_frame.pack(fill="x", padx=20, pady=5)
-
-        tk.Button(
-            rider_load_frame,
-            text="Load Riders from Ride-Time PDF",
-            command=self.load_riders_from_pdf
-        ).pack(side="left", padx=5)
+        rider_search_frame = tk.Frame(self.main_frame)
+        rider_search_frame.pack(fill="x", padx=20, pady=5)
 
         tk.Label(
-            rider_load_frame,
-            text="Search:"
-        ).pack(side="left", padx=(20, 5))
+            rider_search_frame,
+            text="Search Possible Riders from PDF:"
+        ).pack(side="left", padx=(0, 5))
 
-        tk.Entry(
-            rider_load_frame,
-            textvariable=self.rider_search
+        self.create_prompt_entry(
+            rider_search_frame,
+            self.rider_search,
+            "Type rider name to filter"
         ).pack(side="left", fill="x", expand=True)
 
         rider_lists_frame = tk.Frame(self.main_frame)
@@ -371,7 +536,7 @@ class HorseShowSchedulerGUI:
             rider_lists_frame,
             text="Possible Riders from PDF"
         )
-        available_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        available_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
         self.available_riders_listbox = tk.Listbox(
             available_frame,
@@ -385,11 +550,32 @@ class HorseShowSchedulerGUI:
             self.add_double_clicked_rider
         )
 
+        rider_button_frame = tk.Frame(rider_lists_frame)
+        rider_button_frame.pack(side="left", fill="y", padx=4)
+
+        tk.Button(
+            rider_button_frame,
+            text="Add →",
+            command=self.add_selected_available_riders
+        ).pack(fill="x", pady=(28, 5))
+
+        tk.Button(
+            rider_button_frame,
+            text="← Remove",
+            command=self.remove_selected_riders
+        ).pack(fill="x", pady=5)
+
+        tk.Button(
+            rider_button_frame,
+            text="Clear",
+            command=self.clear_all_riders
+        ).pack(fill="x", pady=5)
+
         selected_frame = tk.LabelFrame(
             rider_lists_frame,
             text="Selected Riders for Schedule (Ride Counts)"
         )
-        selected_frame.pack(side="left", fill="both", expand=True)
+        selected_frame.pack(side="left", fill="both", expand=True, padx=(8, 0))
 
         self.riders_listbox = tk.Listbox(
             selected_frame,
@@ -398,65 +584,41 @@ class HorseShowSchedulerGUI:
         )
         self.riders_listbox.pack(fill="both", expand=True, padx=5, pady=5)
 
-        rider_button_frame = tk.Frame(self.main_frame)
-        rider_button_frame.pack(fill="x", padx=20, pady=5)
-
-        tk.Button(
-            rider_button_frame,
-            text="Add Selected Riders",
-            command=self.add_selected_available_riders
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            rider_button_frame,
-            text="Remove Selected Riders",
-            command=self.remove_selected_riders
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            rider_button_frame,
-            text="Sort Selected Riders A-Z",
-            command=self.sort_riders
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            rider_button_frame,
-            text="Clear Selected Riders",
-            command=self.clear_all_riders
-        ).pack(side="left", padx=5)
+        self.riders_listbox.bind(
+            "<Double-Button-1>",
+            self.remove_double_clicked_rider
+        )
 
         button_frame = tk.Frame(self.main_frame)
         button_frame.pack(fill="x", padx=20, pady=10)
 
-        tk.Button(
+        self.generate_button = tk.Button(
             button_frame,
             text="Generate Schedule",
             command=self.generate_schedule,
             height=2,
-            bg="#d9ead3"
-        ).pack(side="left", padx=5)
+            bg="#d9ead3",
+            disabledforeground="#4a4a4a"
+        )
+        self.generate_button.pack(side="left", padx=5)
 
-        tk.Button(
+        self.open_output_button = tk.Button(
             button_frame,
             text="Open Output Folder",
             command=self.open_output_folder,
-            height=2
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Archive Current Show",
-            command=self.archive_current_show,
             height=2,
-            bg="#fce5cd"
-        ).pack(side="left", padx=5)
+            disabledforeground="#4a4a4a"
+        )
+        self.open_output_button.pack(side="left", padx=5)
 
-        tk.Button(
+        self.clear_archive_button = tk.Button(
             button_frame,
             text="Clear Selected PDFs",
-            command=self.clear_selected_pdfs,
-            height=2
-        ).pack(side="left", padx=5)
+            command=self.clear_or_archive_current_show,
+            height=2,
+            disabledforeground="#4a4a4a"
+        )
+        self.clear_archive_button.pack(side="left", padx=5)
 
         output_label = tk.Label(
             self.main_frame,
@@ -486,8 +648,9 @@ class HorseShowSchedulerGUI:
             self.clear_folder_files(CLASS_SCHEDULES_FOLDER)
             shutil.copy2(class_pdf, CLASS_SCHEDULES_FOLDER / class_pdf.name)
 
-            self.class_map = app.build_class_map()
-            self.filtered_class_codes = sorted(self.class_map.keys())
+            self.class_schedule_class_map = app.build_class_map()
+            self.rebuild_class_map()
+            self.update_class_review_state()
 
             self.refresh_class_listbox()
 
@@ -504,33 +667,156 @@ class HorseShowSchedulerGUI:
                 f"The app could not read class definitions from the selected PDF.\n\n{error}"
             )
 
+    def infer_class_map_from_ride_time_lines(self, lines):
+        riders = app.extract_riders_from_lines(lines)
+        rides = app.parse_rides(lines, riders, {})
+        class_names_by_code = {}
+
+        for ride in rides:
+            class_code = ride.get("class", "")
+            class_name = ride.get("class_name", "")
+
+            if not class_code or not class_name:
+                continue
+
+            names = class_names_by_code.setdefault(class_code, {})
+            names[class_name] = names.get(class_name, 0) + 1
+
+        inferred_class_map = {}
+
+        for class_code, names in class_names_by_code.items():
+            inferred_class_map[class_code] = sorted(
+                names.items(),
+                key=lambda item: (-item[1], len(item[0]), item[0].lower())
+            )[0][0]
+
+        return inferred_class_map
+
+    def rebuild_class_map(self):
+        self.class_map = {
+            **self.ride_time_class_map,
+            **self.class_schedule_class_map,
+        }
+        self.filtered_class_codes = sorted(self.class_map.keys())
+
     def refresh_class_listbox(self):
         if not hasattr(self, "class_listbox"):
             return
 
+        self.update_class_review_state()
         self.class_listbox.delete(0, tk.END)
 
-        for code in self.filtered_class_codes:
+        missing_codes = [
+            code for code in self.missing_class_codes
+            if self.class_matches_search(code, "")
+        ]
+
+        for code in missing_codes:
+            list_index = self.class_listbox.size()
+            self.class_listbox.insert(
+                tk.END,
+                f"⚠ {code} — Missing class definition"
+            )
+            self.class_listbox.itemconfig(list_index, bg="#fff2cc")
+
+        loaded_codes = [
+            code for code in sorted(self.class_map.keys())
+            if code not in self.missing_class_codes
+            and self.class_matches_search(code, self.class_map.get(code, ""))
+        ]
+
+        for code in loaded_codes:
             class_name = self.class_map.get(code, "")
             self.class_listbox.insert(tk.END, f"{code} — {class_name}")
+
+    def class_matches_search(self, code, class_name):
+        search_text = self.class_search.get().strip().lower()
+        class_name = class_name or ""
+
+        if not search_text:
+            return True
+
+        return (
+            search_text in code.lower()
+            or search_text in class_name.lower()
+            or (
+                code in self.missing_class_codes
+                and search_text in "missing class definition"
+            )
+        )
 
     def filter_class_map(self):
         if not hasattr(self, "class_listbox"):
             return
 
-        search_text = self.class_search.get().strip().lower()
-
-        codes = sorted(self.class_map.keys())
-
-        if search_text:
-            codes = [
-                code for code in codes
-                if search_text in code.lower()
-                or search_text in self.class_map.get(code, "").lower()
-            ]
-
-        self.filtered_class_codes = codes
         self.refresh_class_listbox()
+
+    def update_class_review_state(self):
+        riders = self.get_rider_lines()
+
+        if not self.ride_time_lines or not riders:
+            self.used_class_codes = set()
+            self.missing_class_codes = []
+            self.update_class_defs_status()
+            return
+
+        rides = app.parse_rides(
+            self.ride_time_lines,
+            riders,
+            self.class_map
+        )
+
+        self.used_class_codes = {
+            ride["class"]
+            for ride in rides
+            if ride.get("class")
+        }
+        self.missing_class_codes = sorted(
+            code for code in self.used_class_codes
+            if not self.class_map.get(code)
+        )
+        self.update_class_defs_status()
+
+    def update_class_defs_status(self):
+        if not hasattr(self, "class_defs_status"):
+            return
+
+        class_count = len(self.class_map)
+        used_count = len(self.used_class_codes)
+        missing_count = len(self.missing_class_codes)
+        inferred_count = len(self.ride_time_class_map)
+        schedule_count = len(self.class_schedule_class_map)
+
+        if missing_count:
+            self.class_defs_status.config(
+                text=(
+                    f"⚠ {missing_count} class definition(s) need review "
+                    f"({class_count} loaded, {used_count} used by selected riders)"
+                ),
+                fg="#b45f06"
+            )
+        elif used_count:
+            self.class_defs_status.config(
+                text=(
+                    f"✅ All selected-rider classes found "
+                    f"({class_count} loaded, {used_count} used)"
+                ),
+                fg="green"
+            )
+        elif class_count:
+            self.class_defs_status.config(
+                text=(
+                    f"✅ {class_count} class definition(s) loaded "
+                    f"({inferred_count} from ride times"
+                    f"{', ' + str(schedule_count) + ' from class schedule' if schedule_count else ''})"
+                ),
+                fg="green"
+            )
+        else:
+            self.class_defs_status.config(
+                text="⬜ No class definitions loaded",
+                fg="gray"
+            )
 
     def on_class_selected(self, event=None):
         selected_indices = list(self.class_listbox.curselection())
@@ -544,6 +830,10 @@ class HorseShowSchedulerGUI:
             return
 
         code, class_name = selected_text.split(" — ", 1)
+        code = code.replace("⚠", "").strip()
+
+        if class_name == "Missing class definition":
+            class_name = ""
 
         self.selected_class_code.set(code)
         self.selected_class_name.set(class_name)
@@ -567,12 +857,8 @@ class HorseShowSchedulerGUI:
             return
 
         self.class_map[code] = class_name
+        self.update_class_review_state()
         self.filter_class_map()
-
-        messagebox.showinfo(
-            "Class Saved",
-            f"{code} was added/updated."
-        )
 
     def remove_selected_class(self):
         code = self.selected_class_code.get().strip()
@@ -602,6 +888,7 @@ class HorseShowSchedulerGUI:
         del self.class_map[code]
         self.selected_class_code.set("")
         self.selected_class_name.set("")
+        self.update_class_review_state()
         self.filter_class_map()
 
     def load_existing_riders(self):
@@ -637,10 +924,13 @@ class HorseShowSchedulerGUI:
             self.ride_time_lines = lines
             self.available_riders = app.extract_riders_from_lines(lines)
             self.rider_ride_counts = self.count_rides_by_rider(lines)
+            self.ride_time_class_map = self.infer_class_map_from_ride_time_lines(lines)
+            self.rebuild_class_map()
             self.filtered_available_riders = self.available_riders[:]
 
             self.refresh_available_riders_listbox()
             self.refresh_selected_riders_listbox()
+            self.refresh_class_listbox()
 
             messagebox.showinfo(
                 "Riders Loaded",
@@ -757,18 +1047,13 @@ class HorseShowSchedulerGUI:
 
         for rider in selected_riders:
             if rider not in current_riders:
-                self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
                 current_riders.append(rider)
                 added_count += 1
 
-        self.sort_riders()
+        self.set_rider_lines(current_riders)
+        self.refresh_class_listbox()
         self.update_checklist()
 
-        messagebox.showinfo(
-            "Riders Added",
-            f"Added {added_count} rider(s) to the selected rider list."
-        )
-    
     def add_double_clicked_rider(self, event):
         selected_index = self.available_riders_listbox.nearest(event.y)
 
@@ -785,20 +1070,28 @@ class HorseShowSchedulerGUI:
         current_riders = self.get_rider_lines()
 
         if rider not in current_riders:
-            self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
-            self.sort_riders()
+            current_riders.append(rider)
+            self.set_rider_lines(current_riders)
+            self.refresh_class_listbox()
             self.update_checklist()
-        else:
-            messagebox.showinfo(
-                "Duplicate Rider",
-                f"{rider} is already in the selected rider list."
-            )
+
+    def remove_double_clicked_rider(self, event):
+        selected_index = self.riders_listbox.nearest(event.y)
+
+        if selected_index is None:
+            return
+
+        if selected_index < 0 or selected_index >= self.riders_listbox.size():
+            return
+
+        self.riders_listbox.delete(selected_index)
+        self.refresh_class_listbox()
+        self.update_checklist()
 
     def update_checklist(self):
         show_name = self.show_name.get().strip()
         ride_pdf = self.ride_time_pdf.get().strip()
         class_pdf = self.class_schedule_pdf.get().strip()
-        class_count = len(self.class_map)
         rider_count = len(self.get_rider_lines())
 
         if hasattr(self, "show_name_status"):
@@ -810,17 +1103,9 @@ class HorseShowSchedulerGUI:
         if hasattr(self, "class_pdf_status"):
             self.set_status_icon(self.class_pdf_status, bool(class_pdf))
 
-        if hasattr(self, "class_defs_status"):
-            if class_count > 0:
-                self.class_defs_status.config(
-                    text=f"✅ {class_count} class definition(s) loaded",
-                    fg="green"
-                )
-            else:
-                self.class_defs_status.config(
-                    text="⬜ No class definitions loaded",
-                    fg="gray"
-                )
+        self.update_class_review_state()
+        class_count = len(self.class_map)
+        missing_class_count = len(self.missing_class_codes)
 
         if hasattr(self, "riders_status"):
             if rider_count > 0:
@@ -847,11 +1132,13 @@ class HorseShowSchedulerGUI:
             lines.append("⬜ Select ride-time PDF")
 
         if class_pdf:
-            lines.append("✅ Class-schedule PDF selected")
+            lines.append("✅ Class-schedule PDF added for class details")
         else:
-            lines.append("⬜ Select class-schedule PDF")
+            lines.append("⬜ Class-schedule PDF optional unless class review is needed")
 
-        if class_count > 0:
+        if missing_class_count > 0:
+            lines.append(f"⚠ Review {missing_class_count} class definition(s)")
+        elif class_count > 0:
             lines.append(f"✅ {class_count} class definition(s) loaded")
         else:
             lines.append("⬜ Load class definitions")        
@@ -861,12 +1148,99 @@ class HorseShowSchedulerGUI:
         else:
             lines.append("⬜ Add riders")
 
+        can_generate = self.can_generate_schedule(
+            show_name,
+            ride_pdf,
+            class_count,
+            rider_count,
+            missing_class_count
+        )
+
         if self.schedule_generated:
             lines.append("✅ Schedule generated")
+        elif can_generate:
+            lines.append("✅ Ready to generate schedule")
         else:
             lines.append("⬜ Generate schedule")
 
         self.checklist_label.config(text="\n".join(lines))
+        self.update_generate_button_state(can_generate)
+        self.update_output_button_state()
+        self.update_clear_archive_button_state()
+
+    def can_generate_schedule(
+        self,
+        show_name,
+        ride_pdf,
+        class_count,
+        rider_count,
+        missing_class_count
+    ):
+        return all([
+            bool(show_name),
+            bool(ride_pdf),
+            class_count > 0,
+            rider_count > 0,
+            missing_class_count == 0,
+        ])
+
+    def update_generate_button_state(self, can_generate):
+        if not hasattr(self, "generate_button"):
+            return
+
+        if can_generate:
+            self.generate_button.config(
+                state=tk.NORMAL,
+                bg="#d9ead3",
+                fg="black"
+            )
+        else:
+            self.generate_button.config(
+                state=tk.DISABLED,
+                bg="#eeeeee",
+                disabledforeground="#4a4a4a"
+            )
+
+    def update_output_button_state(self):
+        if not hasattr(self, "open_output_button"):
+            return
+
+        if self.schedule_generated:
+            self.open_output_button.config(
+                state=tk.NORMAL,
+                fg="black"
+            )
+        else:
+            self.open_output_button.config(
+                state=tk.DISABLED,
+                disabledforeground="#4a4a4a"
+            )
+
+    def update_clear_archive_button_state(self):
+        if not hasattr(self, "clear_archive_button"):
+            return
+
+        if self.schedule_generated:
+            self.clear_archive_button.config(
+                text="Archive Current Show",
+                state=tk.NORMAL,
+                bg="#fce5cd",
+                fg="black"
+            )
+        else:
+            has_selected_pdf = bool(
+                self.ride_time_pdf.get().strip()
+                or self.class_schedule_pdf.get().strip()
+            )
+            button_state = tk.NORMAL if has_selected_pdf else tk.DISABLED
+
+            self.clear_archive_button.config(
+                text="Clear Selected PDFs",
+                state=button_state,
+                bg="#eeeeee" if not has_selected_pdf else self.root.cget("bg"),
+                fg="black",
+                disabledforeground="#4a4a4a"
+            )
 
     def get_rider_lines(self):
         if not hasattr(self, "riders_listbox"):
@@ -885,9 +1259,15 @@ class HorseShowSchedulerGUI:
 
         self.riders_listbox.delete(0, tk.END)
 
-        for rider in riders:
+        sorted_riders = sorted(
+            riders,
+            key=lambda name: name.lower()
+        )
+
+        for rider in sorted_riders:
             self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
-            self.update_checklist()
+        self.refresh_class_listbox()
+        self.update_checklist()
 
     def add_rider(self):
         rider = self.new_rider_name.get().strip()
@@ -908,19 +1288,9 @@ class HorseShowSchedulerGUI:
             )
             return
 
-        self.riders_listbox.insert(tk.END, self.format_selected_rider(rider))
-        self.new_rider_name.set("")
-        self.update_checklist()
-
-    def sort_riders(self):
-        riders = self.get_rider_lines()
-
-        riders = sorted(
-            riders,
-            key=lambda name: name.lower()
-        )
-
+        riders.append(rider)
         self.set_rider_lines(riders)
+        self.new_rider_name.set("")
 
     def remove_selected_riders(self):
         selected_indices = list(self.riders_listbox.curselection())
@@ -932,23 +1302,12 @@ class HorseShowSchedulerGUI:
             )
             return
 
-        selected_riders = [
-            self.riders_listbox.get(index)
-            for index in selected_indices
-        ]
-
-        confirm = messagebox.askyesno(
-            "Remove Selected Riders",
-            "Remove these riders?\n\n" + "\n".join(selected_riders)
-        )
-
-        if not confirm:
-            return
-
         # Delete from bottom to top so indexes do not shift.
         for index in reversed(selected_indices):
             self.riders_listbox.delete(index)
-            self.update_checklist()
+
+        self.refresh_class_listbox()
+        self.update_checklist()
 
     def clear_all_riders(self):
         confirm = messagebox.askyesno(
@@ -958,6 +1317,7 @@ class HorseShowSchedulerGUI:
 
         if confirm:
             self.riders_listbox.delete(0, tk.END)
+            self.refresh_class_listbox()
             self.update_checklist()
 
     def choose_ride_time_pdf(self):
@@ -983,6 +1343,38 @@ class HorseShowSchedulerGUI:
     def clear_selected_pdfs(self):
         self.ride_time_pdf.set("")
         self.class_schedule_pdf.set("")
+        self.clear_ride_time_data()
+        self.clear_class_data()
+        self.schedule_generated = False
+        self.update_checklist()
+
+    def clear_ride_time_data(self):
+        self.ride_time_lines = []
+        self.available_riders = []
+        self.filtered_available_riders = []
+        self.rider_ride_counts = {}
+        self.ride_time_class_map = {}
+        self.rebuild_class_map()
+
+        if hasattr(self, "available_riders_listbox"):
+            self.available_riders_listbox.delete(0, tk.END)
+
+        self.refresh_selected_riders_listbox()
+        self.refresh_class_listbox()
+
+    def clear_class_data(self):
+        self.class_schedule_class_map = {}
+        self.rebuild_class_map()
+        self.update_class_review_state()
+        self.selected_class_code.set("")
+        self.selected_class_name.set("")
+        self.refresh_class_listbox()
+
+    def clear_or_archive_current_show(self):
+        if self.schedule_generated:
+            self.archive_current_show()
+        else:
+            self.clear_selected_pdfs()
 
     def save_riders(self):
         riders = self.get_rider_lines()
@@ -1122,14 +1514,16 @@ class HorseShowSchedulerGUI:
         if not ride_pdf.exists():
             raise FileNotFoundError("Please choose a valid ride-time PDF.")
 
-        if not class_pdf.exists():
-            raise FileNotFoundError("Please choose a valid class-schedule PDF.")
-
         self.clear_folder_files(RIDE_TIMES_FOLDER)
         self.clear_folder_files(CLASS_SCHEDULES_FOLDER)
 
         shutil.copy2(ride_pdf, RIDE_TIMES_FOLDER / ride_pdf.name)
-        shutil.copy2(class_pdf, CLASS_SCHEDULES_FOLDER / class_pdf.name)
+
+        if self.class_schedule_pdf.get().strip():
+            if not class_pdf.exists():
+                raise FileNotFoundError("Please choose a valid class-schedule PDF.")
+
+            shutil.copy2(class_pdf, CLASS_SCHEDULES_FOLDER / class_pdf.name)
     
 
     def build_friendly_summary(self, result_text):
@@ -1191,9 +1585,6 @@ class HorseShowSchedulerGUI:
                 raise ValueError("Please enter a show name.")
 
             app.SHOW_NAME = show_name
-
-            if not self.class_map:
-                self.load_classes_from_pdf()
 
             with contextlib.redirect_stdout(captured_output):
                 app.main(class_map_override=self.class_map)
