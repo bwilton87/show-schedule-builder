@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
@@ -19,8 +20,14 @@ PDF_FOLDER = "ride_times"
 CLASS_SCHEDULE_FOLDER = "class_schedules"
 RIDERS_FILE = "riders.txt"
 OUTPUT_FOLDER = "output"
+SUPPORTING_OUTPUT_FOLDER = "supporting_files"
 HORSE_SHOW_OFFICE_BASE_URL = "https://www.horseshowoffice.com"
 FOXVILLAGE_BASE_URL = "https://www.foxvillage.com"
+EQUESTRIAN_HUB_GRAPHQL_URL = (
+    "https://spectatorjudginga14295f70.hana.ondemand.com/"
+    "andromeda-1.0.0/api/graph"
+)
+EQUESTRIAN_HUB_MASTERLIST_CACHE = {}
 LETTER_ONLY_CLASS_CODES = {
     "L",
     "DHGEF",
@@ -61,6 +68,13 @@ def slugify_filename(text):
 def output_path(filename):
     show_slug = slugify_filename(SHOW_NAME)
     return os.path.join(OUTPUT_FOLDER, f"{show_slug}_{filename}")
+
+
+def supporting_output_path(filename):
+    show_slug = slugify_filename(SHOW_NAME)
+    folder = os.path.join(OUTPUT_FOLDER, SUPPORTING_OUTPUT_FOLDER)
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, f"{show_slug}_{filename}")
 
 
 arena_pattern = re.compile(r"\s(?P<arena_num>\d+):\s")
@@ -396,9 +410,7 @@ def enrich_rides_from_class_schedule(rides, schedule_ride_lookup):
     return rides
 
 def export_class_map_csv(class_map):
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-    output_file = output_path("barn_schedule.csv")
+    output_file = supporting_output_path("class_definitions.csv")
     
     with open(output_file, "w", newline="") as file:
         writer = csv.writer(file)
@@ -505,6 +517,37 @@ def url_request_json(url):
     return json.loads(url_request_text(url, encoding="utf-8"))
 
 
+def json_request(url, payload, headers=None):
+    request_headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    if headers:
+        request_headers.update(headers)
+
+    request = Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers=request_headers
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+    except (ssl.SSLCertVerificationError, URLError) as error:
+        if isinstance(error, URLError) and not isinstance(
+            error.reason,
+            ssl.SSLCertVerificationError
+        ):
+            raise
+
+        context = ssl._create_unverified_context()
+        with urlopen(request, timeout=30, context=context) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
 def download_url_to_file(url, destination_path):
     request = Request(
         url,
@@ -558,8 +601,21 @@ def foxvillage_show_id(url):
     return show_id
 
 
+def equestrian_hub_show_id(url):
+    parsed_url = urlparse(url)
+    match = re.search(r"/show/(?P<show_id>\d+)", parsed_url.path)
+
+    if not match:
+        raise ValueError("Equestrian Hub URL must look like /show/12345.")
+
+    return match.group("show_id")
+
+
 def source_type_from_url(url):
     hostname = (urlparse(url).hostname or "").lower()
+
+    if "equestrian-hub.com" in hostname:
+        return "equestrianhub"
 
     if "foxvillage.com" in hostname:
         return "foxvillage"
@@ -568,7 +624,8 @@ def source_type_from_url(url):
         return "horseshowoffice"
 
     raise ValueError(
-        "Unsupported ride-time URL. Use a HorseShowOffice or FoxVillage show URL."
+        "Unsupported ride-time URL. Use a HorseShowOffice, FoxVillage, "
+        "or Equestrian Hub show URL."
     )
 
 
@@ -813,8 +870,263 @@ def fetch_foxvillage_rides(rider_links, riders):
     return rides
 
 
+EQUESTRIAN_HUB_MASTERLIST_QUERY = """
+query GetShowMasterlist($showId: ID!) {
+  masterlist: showMasterlist(showId: $showId) {
+    showId
+    name
+    firstDay
+    lastDay
+    timeZone
+    arenas
+    competitions {
+      id
+      name
+      subtitle
+      status
+      number
+      level
+      discipline
+      arena
+      publishingStatus
+      numberOfCompetitors
+      numberOfFinishedCompetitors
+      instant
+      assignmentDeadline
+    }
+    combinations {
+      athleteApiId
+      horseApiId
+      cno
+      competitions {
+        competitionId
+        startTime
+        numberInCompetition
+        providedMusic
+        status
+      }
+    }
+    athletes {
+      apiId
+      id
+      person {
+        apiId
+        name
+      }
+    }
+    horses {
+      apiId
+      name
+    }
+  }
+}
+"""
+
+
+def fetch_equestrian_hub_masterlist_by_show_id(show_id):
+    if show_id in EQUESTRIAN_HUB_MASTERLIST_CACHE:
+        return EQUESTRIAN_HUB_MASTERLIST_CACHE[show_id]
+
+    response = json_request(
+        EQUESTRIAN_HUB_GRAPHQL_URL,
+        {
+            "operationName": "GetShowMasterlist",
+            "query": EQUESTRIAN_HUB_MASTERLIST_QUERY,
+            "variables": {
+                "showId": show_id,
+            },
+        },
+        {
+            "Origin": "https://equestrian-hub.com",
+            "Referer": f"https://equestrian-hub.com/show/{show_id}",
+        }
+    )
+
+    if response.get("errors"):
+        message = response["errors"][0].get("message", "Unknown GraphQL error")
+        raise ValueError(f"Equestrian Hub returned an error: {message}")
+
+    masterlist = response.get("data", {}).get("masterlist")
+
+    if not masterlist:
+        raise ValueError("No Equestrian Hub show masterlist was found.")
+
+    EQUESTRIAN_HUB_MASTERLIST_CACHE[show_id] = masterlist
+    return masterlist
+
+
+def fetch_equestrian_hub_masterlist(url):
+    return fetch_equestrian_hub_masterlist_by_show_id(
+        equestrian_hub_show_id(url)
+    )
+
+
+def fetch_equestrian_hub_rider_links(url):
+    show_id = equestrian_hub_show_id(url)
+    masterlist = fetch_equestrian_hub_masterlist_by_show_id(show_id)
+    rider_links = {}
+
+    for athlete in masterlist.get("athletes", []):
+        rider_name = html_cell_text(
+            athlete.get("person", {}).get("name", "")
+        )
+        athlete_api_id = athlete.get("apiId")
+
+        if not rider_name or not athlete_api_id:
+            continue
+
+        rider_links[rider_name] = {
+            "source": "equestrianhub",
+            "show_id": show_id,
+            "athlete_api_id": athlete_api_id,
+        }
+
+    return dict(sorted(rider_links.items(), key=lambda item: item[0].lower()))
+
+
+def parse_iso_instant(instant_text, timezone_name=""):
+    instant_text = (instant_text or "").strip()
+
+    if not instant_text:
+        return None
+
+    try:
+        date_time = datetime.fromisoformat(
+            instant_text.replace("Z", "+00:00")
+        )
+    except ValueError:
+        return None
+
+    if timezone_name and date_time.tzinfo is not None:
+        try:
+            date_time = date_time.astimezone(ZoneInfo(timezone_name))
+        except Exception:
+            pass
+
+    return date_time
+
+
+def iso_instant_to_day_and_time(instant_text, timezone_name=""):
+    date_time = parse_iso_instant(instant_text, timezone_name)
+
+    if not date_time:
+        return "", ""
+
+    return (
+        date_time.strftime("%a"),
+        date_time.strftime("%I:%M %p").lstrip("0"),
+    )
+
+
+def equestrian_hub_class_name(competition):
+    class_name = html_cell_text(competition.get("name", ""))
+    subtitle = html_cell_text(competition.get("subtitle", ""))
+
+    if subtitle and subtitle not in class_name:
+        return f"{class_name} - {subtitle}"
+
+    return class_name
+
+
+def fetch_equestrian_hub_rides(rider_links, riders):
+    if not riders:
+        return []
+
+    first_link = next(iter(rider_links.values()), {})
+    show_id = first_link.get("show_id")
+
+    if not show_id:
+        return []
+
+    masterlist = fetch_equestrian_hub_masterlist_by_show_id(show_id)
+    timezone_name = masterlist.get("timeZone", "")
+    athletes_by_api_id = {
+        athlete.get("apiId"): athlete
+        for athlete in masterlist.get("athletes", [])
+    }
+    horses_by_api_id = {
+        horse.get("apiId"): horse
+        for horse in masterlist.get("horses", [])
+    }
+    competitions_by_id = {
+        competition.get("id"): competition
+        for competition in masterlist.get("competitions", [])
+    }
+    selected_athlete_ids = {
+        rider_links[rider].get("athlete_api_id")
+        for rider in riders
+        if rider in rider_links
+    }
+    riders_by_athlete_id = {
+        rider_links[rider].get("athlete_api_id"): rider
+        for rider in riders
+        if rider in rider_links
+    }
+    rides = []
+
+    for combination in masterlist.get("combinations", []):
+        athlete_api_id = combination.get("athleteApiId")
+
+        if athlete_api_id not in selected_athlete_ids:
+            continue
+
+        athlete = athletes_by_api_id.get(athlete_api_id, {})
+        horse = horses_by_api_id.get(combination.get("horseApiId"), {})
+        rider = riders_by_athlete_id.get(athlete_api_id) or html_cell_text(
+            athlete.get("person", {}).get("name", "")
+        )
+        horse_name = html_cell_text(horse.get("name", ""))
+
+        for ride_info in combination.get("competitions", []):
+            competition = competitions_by_id.get(
+                ride_info.get("competitionId"),
+                {}
+            )
+            class_code = html_cell_text(competition.get("number", ""))
+
+            if not class_code:
+                class_code = html_cell_text(ride_info.get("competitionId", ""))
+
+            day, time = iso_instant_to_day_and_time(
+                ride_info.get("startTime") or competition.get("instant"),
+                timezone_name
+            )
+            class_name = equestrian_hub_class_name(competition)
+            arena = html_cell_text(competition.get("arena", ""))
+
+            rides.append({
+                "rider": rider,
+                "day": day,
+                "time": time,
+                "ready_by": "",
+                "coach": "",
+                "class": class_code,
+                "class_name": class_name,
+                "horse": horse_name,
+                "arena": arena,
+                "arena_number": "",
+                "arena_name": arena,
+                "notes": "",
+                "raw": " ".join(
+                    value for value in [
+                        ride_info.get("startTime", ""),
+                        class_code,
+                        class_name,
+                        horse_name,
+                        arena,
+                    ]
+                    if value
+                ),
+            })
+
+    return rides
+
+
 def fetch_rider_links_from_url(url, source_type=None):
     source_type = source_type or source_type_from_url(url)
+
+    if source_type == "equestrianhub":
+        return fetch_equestrian_hub_rider_links(url)
 
     if source_type == "foxvillage":
         return fetch_foxvillage_rider_links(url)
@@ -830,6 +1142,9 @@ def fetch_rides_for_riders(rider_links, riders):
         return []
 
     first_link = next(iter(rider_links.values()), "")
+
+    if isinstance(first_link, dict) and first_link.get("source") == "equestrianhub":
+        return fetch_equestrian_hub_rides(rider_links, riders)
 
     if isinstance(first_link, dict) and first_link.get("source") == "foxvillage":
         return fetch_foxvillage_rides(rider_links, riders)
@@ -1161,9 +1476,7 @@ def make_ride_id(ride):
 
 
 def export_missing_class_definitions(rides):
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-    output_file = os.path.join(OUTPUT_FOLDER, "missing_class_definitions.csv")
+    output_file = supporting_output_path("missing_class_definitions.csv")
 
     missing = []
 
@@ -1200,9 +1513,7 @@ def export_missing_class_definitions(rides):
 
 
 def export_used_class_codes(rides, class_map):
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-    output_file = os.path.join(OUTPUT_FOLDER, "used_class_codes.csv")
+    output_file = supporting_output_path("used_class_codes.csv")
 
     used_codes = sorted({
         r["class"]
@@ -1234,9 +1545,7 @@ def ride_sort_key(ride):
 
 
 def export_schedule_csv(rides):
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-    output_file = output_path("barn_schedule.csv")
+    output_file = supporting_output_path("barn_schedule.csv")
 
     with open(output_file, "w", newline="") as file:
         writer = csv.writer(file)
@@ -1375,9 +1684,7 @@ def setup_schedule_sheet(sheet, rides, title):
 
 
 def export_appsheet_csv(rides):
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-    output_file = output_path("appsheet_schedule.csv")
+    output_file = supporting_output_path("appsheet_schedule.csv")
 
     with open(output_file, "w", newline="") as file:
         writer = csv.writer(file)

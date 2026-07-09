@@ -76,20 +76,30 @@ class HorseShowSchedulerGUI:
     def selected_platform_key(self):
         platform = self.show_platform.get()
 
+        if platform == "Equestrian Hub":
+            return "equestrianhub"
+
         if platform == "FoxVillage":
             return "foxvillage"
 
         return "horseshowoffice"
 
     def selected_platform_name(self):
-        return "FoxVillage" if self.selected_platform_key() == "foxvillage" else "HorseShowOffice"
+        platform_names = {
+            "equestrianhub": "Equestrian Hub",
+            "foxvillage": "FoxVillage",
+            "horseshowoffice": "HorseShowOffice",
+        }
+        return platform_names.get(self.selected_platform_key(), "HorseShowOffice")
 
     def platform_requires_arena_source(self):
         return self.selected_platform_key() == "horseshowoffice"
 
     def on_platform_changed(self):
         if hasattr(self, "ride_url_label"):
-            if self.selected_platform_key() == "foxvillage":
+            if self.selected_platform_key() == "equestrianhub":
+                self.ride_url_label.config(text="Equestrian Hub URL:")
+            elif self.selected_platform_key() == "foxvillage":
                 self.ride_url_label.config(text="FoxVillage Show URL:")
             else:
                 self.ride_url_label.config(text="Ride Times Lookup URL:")
@@ -469,7 +479,8 @@ class HorseShowSchedulerGUI:
             platform_frame,
             self.show_platform,
             "HorseShowOffice",
-            "FoxVillage"
+            "FoxVillage",
+            "Equestrian Hub"
         ).pack(side="left")
 
         classes_header_frame = tk.Frame(self.main_frame)
@@ -638,7 +649,7 @@ class HorseShowSchedulerGUI:
         self.create_prompt_entry(
             ride_url_frame,
             self.ride_time_url,
-            "Paste HorseShowOffice Ride Times Lookup or FoxVillage show URL"
+            "Paste the selected platform's show or ride-time URL"
         ).pack(side="left", fill="x", expand=True)
         tk.Button(
             ride_url_frame,
@@ -1591,7 +1602,7 @@ class HorseShowSchedulerGUI:
             and self.hso_rider_links
             and not arena_source_required
         ):
-            lines.append("✅ FoxVillage includes arena/ring details")
+            lines.append(f"✅ {self.selected_platform_name()} includes arena/ring details")
         elif arena_source_loaded:
             if class_url:
                 lines.append("✅ Ride Schedule URL loaded for arena/ring details")
@@ -1893,17 +1904,26 @@ class HorseShowSchedulerGUI:
             if item.is_file():
                 item.unlink()
 
+    def clear_folder_contents(self, folder):
+        folder.mkdir(exist_ok=True)
+
+        for item in folder.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+            elif item.is_file():
+                item.unlink()
+
     def folder_has_files(self, folder):
         if not folder.exists():
             return False
 
-        return any(item.is_file() for item in folder.iterdir())
+        return any(item.is_file() for item in folder.rglob("*"))
 
     def archive_folder_contents(self, source_folder, archive_show_folder):
         source_folder.mkdir(exist_ok=True)
 
         files = [
-            item for item in source_folder.iterdir()
+            item for item in source_folder.rglob("*")
             if item.is_file()
         ]
 
@@ -1914,7 +1934,17 @@ class HorseShowSchedulerGUI:
         destination_folder.mkdir(parents=True, exist_ok=True)
 
         for file in files:
-            shutil.move(str(file), str(destination_folder / file.name))
+            destination_file = destination_folder / file.relative_to(source_folder)
+            destination_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(file), str(destination_file))
+
+        for folder in sorted(
+            [item for item in source_folder.rglob("*") if item.is_dir()],
+            key=lambda path: len(path.parts),
+            reverse=True
+        ):
+            if not any(folder.iterdir()):
+                folder.rmdir()
 
         return len(files)
 
@@ -2013,6 +2043,7 @@ class HorseShowSchedulerGUI:
 
         self.clear_folder_files(RIDE_TIMES_FOLDER)
         self.clear_folder_files(CLASS_SCHEDULES_FOLDER)
+        self.clear_folder_contents(OUTPUT_FOLDER)
 
         if self.ride_time_source == "pdf":
             shutil.copy2(ride_pdf, RIDE_TIMES_FOLDER / ride_pdf.name)
@@ -2057,14 +2088,11 @@ class HorseShowSchedulerGUI:
         elif "Rides missing arena:" in result_text:
             summary_lines.append("⚠️ Some rides are missing arena information.")
 
-        if "Schedule exported to:" in result_text:
-            summary_lines.append("✅ CSV schedule exported.")
-
         if "Formatted Excel schedule exported to:" in result_text:
             summary_lines.append("✅ Excel schedule exported.")
 
-        if "AppSheet schedule exported to:" in result_text:
-            summary_lines.append("✅ AppSheet schedule exported.")
+        if "Schedule exported to:" in result_text or "AppSheet schedule exported to:" in result_text:
+            summary_lines.append("✅ Supporting files saved in the supporting_files folder.")
 
         if not summary_lines:
             summary_lines.append("Schedule generation completed. Review the output below.")
