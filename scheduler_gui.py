@@ -3,6 +3,7 @@ from copy import error
 import io
 import shutil
 import subprocess
+import tempfile
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext
@@ -28,6 +29,8 @@ class HorseShowSchedulerGUI:
         self.ride_time_pdf = tk.StringVar()
         self.ride_time_url = tk.StringVar()
         self.class_schedule_pdf = tk.StringVar()
+        self.class_schedule_url = tk.StringVar()
+        self.skip_arena_source = tk.BooleanVar(value=False)
         self.show_name = tk.StringVar()
         self.rider_search = tk.StringVar()
 
@@ -43,6 +46,7 @@ class HorseShowSchedulerGUI:
 
         self.schedule_generated = False
         self.ride_time_source = "pdf"
+        self.pdf_fallback_visible = False
         self.available_riders = []
         self.filtered_available_riders = []
         self.ride_time_lines = []
@@ -58,6 +62,8 @@ class HorseShowSchedulerGUI:
         self.ride_time_pdf.trace_add("write", lambda *args: self.on_ride_pdf_changed())
         self.ride_time_url.trace_add("write", lambda *args: self.on_ride_url_changed())
         self.class_schedule_pdf.trace_add("write", lambda *args: self.on_class_pdf_changed())
+        self.class_schedule_url.trace_add("write", lambda *args: self.on_class_url_changed())
+        self.skip_arena_source.trace_add("write", lambda *args: self.update_checklist())
         self.rider_search.trace_add("write", lambda *args: self.filter_available_riders())
         self.class_search.trace_add("write", lambda *args: self.filter_class_map())
 
@@ -79,6 +85,16 @@ class HorseShowSchedulerGUI:
 
     def on_class_pdf_changed(self):
         if not self.class_schedule_pdf.get().strip():
+            self.clear_class_data()
+
+        self.update_checklist()
+
+    def on_class_url_changed(self):
+        if self.class_schedule_url.get().strip():
+            if self.class_schedule_pdf.get().strip():
+                self.class_schedule_pdf.set("")
+            self.clear_class_data()
+        else:
             self.clear_class_data()
 
         self.update_checklist()
@@ -358,6 +374,24 @@ class HorseShowSchedulerGUI:
 
         return entry
 
+    def toggle_pdf_fallbacks(self):
+        self.pdf_fallback_visible = not self.pdf_fallback_visible
+        self.update_pdf_fallback_visibility()
+
+    def update_pdf_fallback_visibility(self):
+        if not hasattr(self, "ride_frame") or not hasattr(self, "class_frame"):
+            return
+
+        self.ride_frame.pack_forget()
+        self.class_frame.pack_forget()
+
+        if self.pdf_fallback_visible:
+            self.ride_frame.pack(fill="x", padx=20, pady=(0, 5), before=self.rider_search_frame)
+            self.class_frame.pack(fill="x", padx=20, pady=(0, 8), before=self.checklist_label.master)
+            self.pdf_fallback_button.config(text="Hide PDF Fallbacks")
+        else:
+            self.pdf_fallback_button.config(text="URL Unavailable?")
+
     def build_interface(self):
         self.create_scrollable_container()
 
@@ -421,14 +455,39 @@ class HorseShowSchedulerGUI:
             command=self.load_classes_for_selected_riders
         ).pack(side="right")
 
+        class_url_frame = tk.Frame(self.main_frame)
+        class_url_frame.pack(fill="x", padx=20, pady=5)
+
+        tk.Label(class_url_frame, text="Arena / Ring URL:", width=18, anchor="w").pack(side="left")
+        self.create_prompt_entry(
+            class_url_frame,
+            self.class_schedule_url,
+            "Paste Ride Schedule PDF URL so arenas/rings can populate"
+        ).pack(side="left", fill="x", expand=True)
+        tk.Button(
+            class_url_frame,
+            text="Load",
+            command=self.load_classes_from_url
+        ).pack(side="left", padx=5)
+
+        self.class_url_status = tk.Label(class_url_frame, text="⬜", width=4)
+        self.class_url_status.pack(side="left", padx=5)
+
+        tk.Checkbutton(
+            class_url_frame,
+            text="One ring / skip arena URL",
+            variable=self.skip_arena_source
+        ).pack(side="left", padx=5)
+
         class_frame = tk.Frame(self.main_frame)
         class_frame.pack(fill="x", padx=20, pady=5)
+        self.class_frame = class_frame
 
-        tk.Label(class_frame, text="Class Schedule PDF:", width=18, anchor="w").pack(side="left")
+        tk.Label(class_frame, text="PDF Fallback:", width=18, anchor="w").pack(side="left")
         self.create_prompt_entry(
             class_frame,
             self.class_schedule_pdf,
-            "Choose class schedule PDF"
+            "Choose Ride Schedule PDF if URL import is unavailable"
         ).pack(side="left", fill="x", expand=True)
         tk.Button(class_frame, text="Choose", command=self.choose_class_schedule_pdf).pack(side="left", padx=5)
 
@@ -518,14 +577,21 @@ class HorseShowSchedulerGUI:
         )
         self.riders_status.pack(side="left", padx=10)
 
+        self.pdf_fallback_button = tk.Button(
+            riders_header_frame,
+            text="URL Unavailable?",
+            command=self.toggle_pdf_fallbacks
+        )
+        self.pdf_fallback_button.pack(side="right")
+
         ride_url_frame = tk.Frame(self.main_frame)
         ride_url_frame.pack(fill="x", padx=20, pady=5)
 
-        tk.Label(ride_url_frame, text="Ride Times URL:", width=18, anchor="w").pack(side="left")
+        tk.Label(ride_url_frame, text="Ride Times Lookup URL:", width=18, anchor="w").pack(side="left")
         self.create_prompt_entry(
             ride_url_frame,
             self.ride_time_url,
-            "Paste HorseShowOffice ride-times URL"
+            "From the main show page, click Ride Times Lookup and paste that URL here"
         ).pack(side="left", fill="x", expand=True)
         tk.Button(
             ride_url_frame,
@@ -538,6 +604,7 @@ class HorseShowSchedulerGUI:
 
         ride_frame = tk.Frame(self.main_frame)
         ride_frame.pack(fill="x", padx=20, pady=5)
+        self.ride_frame = ride_frame
 
         tk.Label(ride_frame, text="PDF Fallback:", width=18, anchor="w").pack(side="left")
         self.create_prompt_entry(
@@ -552,6 +619,7 @@ class HorseShowSchedulerGUI:
 
         rider_search_frame = tk.Frame(self.main_frame)
         rider_search_frame.pack(fill="x", padx=20, pady=5)
+        self.rider_search_frame = rider_search_frame
 
         tk.Label(
             rider_search_frame,
@@ -627,15 +695,17 @@ class HorseShowSchedulerGUI:
         for class_section in (
             checklist_frame,
             classes_header_frame,
+            class_url_frame,
             class_frame,
             class_defs_frame,
         ):
             class_section.pack_forget()
 
         classes_header_frame.pack(fill="x", padx=20, pady=(15, 3))
-        class_frame.pack(fill="x", padx=20, pady=5)
         class_defs_frame.pack(fill="both", padx=20, pady=8)
+        class_url_frame.pack(fill="x", padx=20, pady=(0, 5))
         checklist_frame.pack(fill="x", padx=20, pady=5)
+        self.update_pdf_fallback_visibility()
 
         button_frame = tk.Frame(self.main_frame)
         button_frame.pack(fill="x", padx=20, pady=10)
@@ -686,8 +756,9 @@ class HorseShowSchedulerGUI:
 
         if not class_pdf.exists():
             messagebox.showerror(
-                "Missing Class Schedule PDF",
-                "Please choose a valid class-schedule PDF first."
+                "Missing Ride Schedule PDF",
+                "Please choose a valid ride schedule PDF first. "
+                "This is usually the PDF named Ride Schedule on the show website."
             )
             return
 
@@ -704,7 +775,7 @@ class HorseShowSchedulerGUI:
 
             messagebox.showinfo(
                 "Classes Loaded",
-                f"Loaded {len(self.class_map)} class definitions from the class schedule PDF."
+                f"Loaded {len(self.class_map)} class definitions from the ride schedule PDF."
             )
 
             self.update_checklist()
@@ -713,6 +784,46 @@ class HorseShowSchedulerGUI:
             messagebox.showerror(
                 "Could Not Read Classes",
                 f"The app could not read class definitions from the selected PDF.\n\n{error}"
+            )
+
+    def load_classes_from_url(self):
+        class_url = self.class_schedule_url.get().strip()
+
+        if not class_url:
+            messagebox.showerror(
+                "Missing Ride Schedule URL",
+                "Paste the Ride Schedule PDF URL first."
+            )
+            return
+
+        try:
+            download_path = (
+                Path(tempfile.gettempdir())
+                / "horse_show_scheduler_ride_schedule.pdf"
+            )
+            app.download_url_to_file(class_url, download_path)
+
+            self.clear_folder_files(CLASS_SCHEDULES_FOLDER)
+            shutil.copy2(download_path, CLASS_SCHEDULES_FOLDER / download_path.name)
+
+            self.class_schedule_pdf.set(str(download_path))
+            self.class_schedule_class_map = app.build_class_map()
+            self.rebuild_class_map()
+            self.update_class_review_state()
+            self.refresh_class_listbox()
+
+            messagebox.showinfo(
+                "Ride Schedule Loaded",
+                f"Loaded {len(self.class_schedule_class_map)} class definition(s) "
+                "from the Ride Schedule URL for arena/ring details."
+            )
+
+            self.update_checklist()
+
+        except Exception as error:
+            messagebox.showerror(
+                "Could Not Load Ride Schedule",
+                f"The app could not load the Ride Schedule PDF from the URL.\n\n{error}"
             )
 
     def infer_class_map_from_ride_time_lines(self, lines):
@@ -1018,8 +1129,8 @@ class HorseShowSchedulerGUI:
 
         if not ride_url:
             messagebox.showerror(
-                "Missing Ride-Times URL",
-                "Paste a HorseShowOffice ride-times URL first."
+                "Missing Ride Times Lookup URL",
+                "From the main show page, click Ride Times Lookup and paste that URL here."
             )
             return
 
@@ -1040,6 +1151,7 @@ class HorseShowSchedulerGUI:
             self.rebuild_class_map()
 
             self.refresh_available_riders_listbox()
+            self.load_counts_for_selected_url_riders()
             self.refresh_selected_riders_listbox()
             self.refresh_class_listbox()
 
@@ -1109,6 +1221,66 @@ class HorseShowSchedulerGUI:
 
         return counts
 
+    def apply_skipped_arena_source(self, rides):
+        if not self.skip_arena_source.get():
+            return rides
+
+        for ride in rides:
+            if not ride.get("arena_name"):
+                ride["arena"] = "One Ring"
+                ride["arena_number"] = "1"
+                ride["arena_name"] = "One Ring"
+
+        return rides
+
+    def merge_hso_selected_rides(self, rides):
+        existing_keys = {
+            (
+                ride.get("rider"),
+                ride.get("day"),
+                ride.get("time"),
+                ride.get("class"),
+                ride.get("horse"),
+            )
+            for ride in self.hso_selected_rides
+        }
+
+        for ride in rides:
+            key = (
+                ride.get("rider"),
+                ride.get("day"),
+                ride.get("time"),
+                ride.get("class"),
+                ride.get("horse"),
+            )
+
+            if key not in existing_keys:
+                self.hso_selected_rides.append(ride)
+                existing_keys.add(key)
+
+    def load_counts_for_selected_url_riders(self):
+        if self.ride_time_source != "url" or not self.hso_rider_links:
+            return
+
+        selected_riders = self.get_rider_lines()
+        riders_missing_counts = [
+            rider for rider in selected_riders
+            if rider not in self.rider_ride_counts
+        ]
+
+        if not riders_missing_counts:
+            return
+
+        rides = app.fetch_horse_show_office_rides(
+            self.hso_rider_links,
+            riders_missing_counts
+        )
+        self.merge_hso_selected_rides(rides)
+        for rider in riders_missing_counts:
+            self.rider_ride_counts[rider] = 0
+        self.rider_ride_counts.update(self.count_web_rides_by_rider(rides))
+        self.refresh_selected_riders_listbox()
+
     def load_classes_for_selected_riders(self):
         riders = self.get_rider_lines()
 
@@ -1135,8 +1307,9 @@ class HorseShowSchedulerGUI:
                 self.ride_time_class_map = app.class_map_from_rides(
                     self.hso_selected_rides
                 )
-                self.rider_ride_counts = self.count_web_rides_by_rider(
-                    self.hso_selected_rides
+                self.rider_ride_counts = {rider: 0 for rider in riders}
+                self.rider_ride_counts.update(
+                    self.count_web_rides_by_rider(self.hso_selected_rides)
                 )
                 self.rebuild_class_map()
                 self.refresh_selected_riders_listbox()
@@ -1172,6 +1345,9 @@ class HorseShowSchedulerGUI:
         if count is None:
             return rider
 
+        if count == 0:
+            return f"{rider} (no rides found)"
+
         ride_word = "ride" if count == 1 else "rides"
         return f"{rider} ({count} {ride_word})"
 
@@ -1186,7 +1362,11 @@ class HorseShowSchedulerGUI:
 
         name, suffix = rider_text.rsplit(" (", 1)
 
-        if suffix.endswith(" ride)") or suffix.endswith(" rides)"):
+        if (
+            suffix.endswith(" ride)")
+            or suffix.endswith(" rides)")
+            or suffix == "no rides found)"
+        ):
             return name.strip()
 
         return rider_text
@@ -1209,8 +1389,6 @@ class HorseShowSchedulerGUI:
         if self.ride_time_source != "url":
             return
 
-        self.hso_selected_rides = []
-        self.rider_ride_counts = {}
         self.ride_time_class_map = {}
         self.rebuild_class_map()
 
@@ -1242,6 +1420,7 @@ class HorseShowSchedulerGUI:
             self.clear_url_selected_class_data()
 
         self.set_rider_lines(current_riders)
+        self.load_counts_for_selected_url_riders()
         self.refresh_class_listbox()
         self.update_checklist()
 
@@ -1264,6 +1443,7 @@ class HorseShowSchedulerGUI:
             current_riders.append(rider)
             self.clear_url_selected_class_data()
             self.set_rider_lines(current_riders)
+            self.load_counts_for_selected_url_riders()
             self.refresh_class_listbox()
             self.update_checklist()
 
@@ -1287,6 +1467,9 @@ class HorseShowSchedulerGUI:
         ride_url = self.ride_time_url.get().strip()
         ride_source_loaded = self.ride_source_is_loaded()
         class_pdf = self.class_schedule_pdf.get().strip()
+        class_url = self.class_schedule_url.get().strip()
+        arena_source_loaded = bool(class_pdf)
+        arena_source_skipped = self.skip_arena_source.get()
         rider_count = len(self.get_rider_lines())
 
         if hasattr(self, "show_name_status"):
@@ -1303,6 +1486,12 @@ class HorseShowSchedulerGUI:
 
         if hasattr(self, "class_pdf_status"):
             self.set_status_icon(self.class_pdf_status, bool(class_pdf))
+
+        if hasattr(self, "class_url_status"):
+            self.set_status_icon(
+                self.class_url_status,
+                bool(class_url and class_pdf)
+            )
 
         self.update_class_review_state()
         class_count = len(self.class_map)
@@ -1334,12 +1523,17 @@ class HorseShowSchedulerGUI:
         else:
             lines.append("⬜ Load ride-time URL or select PDF fallback")
 
-        if class_pdf:
-            lines.append("✅ Class-schedule PDF added for class details")
+        if arena_source_loaded:
+            if class_url:
+                lines.append("✅ Ride Schedule URL loaded for arena/ring details")
+            else:
+                lines.append("✅ Ride schedule PDF added for arena/ring details")
+        elif arena_source_skipped:
+            lines.append("✅ Arena/ring source skipped for one-ring show")
         elif self.ride_time_source == "url":
-            lines.append("⬜ Add class-schedule PDF for arena details")
+            lines.append("⬜ Add Ride Schedule URL or PDF to populate arenas/rings")
         else:
-            lines.append("⬜ Class-schedule PDF optional unless class review is needed")
+            lines.append("⬜ Ride schedule PDF optional unless arena/ring review is needed")
 
         if missing_class_count > 0:
             lines.append(f"⚠ Review {missing_class_count} class definition(s)")
@@ -1357,7 +1551,8 @@ class HorseShowSchedulerGUI:
 
         arena_details_loaded = (
             self.ride_time_source != "url"
-            or bool(class_pdf)
+            or arena_source_loaded
+            or arena_source_skipped
         )
 
         can_generate = self.can_generate_schedule(
@@ -1453,6 +1648,7 @@ class HorseShowSchedulerGUI:
                 self.ride_time_pdf.get().strip()
                 or self.ride_time_url.get().strip()
                 or self.class_schedule_pdf.get().strip()
+                or self.class_schedule_url.get().strip()
             )
             button_state = tk.NORMAL if has_selected_pdf else tk.DISABLED
 
@@ -1556,18 +1752,20 @@ class HorseShowSchedulerGUI:
 
     def choose_class_schedule_pdf(self):
         file_path = filedialog.askopenfilename(
-            title="Choose Class Schedule PDF",
+            title="Choose Ride Schedule PDF",
             filetypes=[("PDF files", "*.pdf")]
         )
 
         if file_path:
             self.class_schedule_pdf.set(file_path)
+            self.class_schedule_url.set("")
             self.load_classes_from_pdf()
 
     def clear_selected_pdfs(self):
         self.ride_time_pdf.set("")
         self.ride_time_url.set("")
         self.class_schedule_pdf.set("")
+        self.class_schedule_url.set("")
         self.clear_ride_time_data()
         self.clear_class_data()
         self.schedule_generated = False
@@ -1726,6 +1924,7 @@ class HorseShowSchedulerGUI:
         self.ride_time_pdf.set("")
         self.ride_time_url.set("")
         self.class_schedule_pdf.set("")
+        self.class_schedule_url.set("")
 
         messagebox.showinfo(
             "Archive Complete",
@@ -1750,7 +1949,10 @@ class HorseShowSchedulerGUI:
 
         if self.class_schedule_pdf.get().strip():
             if not class_pdf.exists():
-                raise FileNotFoundError("Please choose a valid class-schedule PDF.")
+                raise FileNotFoundError(
+                    "Please choose a valid ride schedule PDF. "
+                    "This is usually the PDF named Ride Schedule on the show website."
+                )
 
             shutil.copy2(class_pdf, CLASS_SCHEDULES_FOLDER / class_pdf.name)
     
@@ -1833,6 +2035,7 @@ class HorseShowSchedulerGUI:
 
                     schedule_lookup = app.build_class_schedule_ride_lookup()
                     app.enrich_rides_from_class_schedule(rides, schedule_lookup)
+                    self.apply_skipped_arena_source(rides)
                     self.rider_ride_counts = self.count_web_rides_by_rider(rides)
                     app.export_rides(rides, self.class_map)
                 else:

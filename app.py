@@ -469,6 +469,36 @@ def hso_request(url, data=None):
             return response.read().decode("windows-1252", errors="replace")
 
 
+def download_url_to_file(url, destination_path):
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+        }
+    )
+
+    destination_path = str(destination_path)
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            data = response.read()
+    except (ssl.SSLCertVerificationError, URLError) as error:
+        if isinstance(error, URLError) and not isinstance(
+            error.reason,
+            ssl.SSLCertVerificationError
+        ):
+            raise
+
+        context = ssl._create_unverified_context()
+        with urlopen(request, timeout=30, context=context) as response:
+            data = response.read()
+
+    with open(destination_path, "wb") as file:
+        file.write(data)
+
+    return destination_path
+
+
 def horse_show_office_params(url):
     parsed_url = urlparse(url)
     query = parse_qs(parsed_url.query)
