@@ -1,5 +1,6 @@
 import csv
 from html import unescape
+import json
 import os
 import re
 import ssl
@@ -19,6 +20,7 @@ CLASS_SCHEDULE_FOLDER = "class_schedules"
 RIDERS_FILE = "riders.txt"
 OUTPUT_FOLDER = "output"
 HORSE_SHOW_OFFICE_BASE_URL = "https://www.horseshowoffice.com"
+FOXVILLAGE_BASE_URL = "https://www.foxvillage.com"
 LETTER_ONLY_CLASS_CODES = {
     "L",
     "DHGEF",
@@ -469,6 +471,40 @@ def hso_request(url, data=None):
             return response.read().decode("windows-1252", errors="replace")
 
 
+def url_request_text(url, encoding="utf-8", data=None):
+    encoded_data = None
+
+    if data is not None:
+        encoded_data = urlencode(data).encode()
+
+    request = Request(
+        url,
+        data=encoded_data,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json,text/html",
+        }
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            return response.read().decode(encoding, errors="replace")
+    except (ssl.SSLCertVerificationError, URLError) as error:
+        if isinstance(error, URLError) and not isinstance(
+            error.reason,
+            ssl.SSLCertVerificationError
+        ):
+            raise
+
+        context = ssl._create_unverified_context()
+        with urlopen(request, timeout=30, context=context) as response:
+            return response.read().decode(encoding, errors="replace")
+
+
+def url_request_json(url):
+    return json.loads(url_request_text(url, encoding="utf-8"))
+
+
 def download_url_to_file(url, destination_path):
     request = Request(
         url,
@@ -511,6 +547,31 @@ def horse_show_office_params(url):
     return show_id, office_id
 
 
+def foxvillage_show_id(url):
+    parsed_url = urlparse(url)
+    query = parse_qs(parsed_url.query)
+    show_id = query.get("id", [""])[0]
+
+    if not show_id:
+        raise ValueError("FoxVillage URL must include an id= show value.")
+
+    return show_id
+
+
+def source_type_from_url(url):
+    hostname = (urlparse(url).hostname or "").lower()
+
+    if "foxvillage.com" in hostname:
+        return "foxvillage"
+
+    if "horseshowoffice.com" in hostname:
+        return "horseshowoffice"
+
+    raise ValueError(
+        "Unsupported ride-time URL. Use a HorseShowOffice or FoxVillage show URL."
+    )
+
+
 def fetch_horse_show_office_rider_links(url):
     show_id, office_id = horse_show_office_params(url)
     html = hso_request(
@@ -544,19 +605,22 @@ def fetch_horse_show_office_rider_links(url):
 
 
 def date_to_day_abbreviation(date_text):
-    date_text = date_text.strip()
+    date_text = (date_text or "").strip()
 
-    try:
-        return datetime.strptime(date_text, "%m/%d/%Y").strftime("%a")
-    except ValueError:
-        return date_text
+    for date_format in ("%m/%d/%Y", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(date_text, date_format).strftime("%a")
+        except ValueError:
+            pass
+
+    return date_text
 
 
 def hso_time_to_display_time(time_text):
     time_text = html_cell_text(time_text)
     time_text = time_text.replace(" ", "")
 
-    for time_format in ("%I:%M:%S%p", "%I:%M%p"):
+    for time_format in ("%I:%M:%S%p", "%I:%M%p", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(time_text, time_format).strftime("%I:%M %p").lstrip("0")
         except ValueError:
@@ -628,6 +692,149 @@ def fetch_horse_show_office_class_map(rider_links):
         rides.extend(parse_horse_show_office_rider_page(html, rider))
 
     return class_map_from_rides(rides)
+
+
+def foxvillage_endpoint(path, **params):
+    query = urlencode(params)
+    return f"{urljoin(FOXVILLAGE_BASE_URL, path)}?{query}"
+
+
+def fetch_foxvillage_rider_links(url):
+    show_id = foxvillage_show_id(url)
+    data = url_request_json(foxvillage_endpoint("/show/GetRiderData", id=show_id))
+    rider_links = {}
+
+    for row in data.get("riderData", []):
+        rider_name = html_cell_text(row.get("riderName", ""))
+        rider_id = str(row.get("riderID", "")).strip()
+
+        if not rider_name or not rider_id:
+            continue
+
+        rider_links[rider_name] = {
+            "source": "foxvillage",
+            "show_id": show_id,
+            "rider_id": rider_id,
+        }
+
+    return dict(sorted(rider_links.items(), key=lambda item: item[0].lower()))
+
+
+def fetch_foxvillage_class_map(show_id):
+    data = url_request_json(foxvillage_endpoint("/show/GetClassData", id=show_id))
+    class_map = {}
+
+    for row in data.get("classData", []):
+        class_code = html_cell_text(row.get("classText", ""))
+        class_name = html_cell_text(row.get("name", ""))
+
+        if class_code and class_name:
+            class_map[class_code] = class_name
+
+    return dict(sorted(class_map.items()))
+
+
+def parse_foxvillage_rider_rows(rows, rider, class_map):
+    rides = []
+
+    for row in rows:
+        class_code = html_cell_text(row.get("classText", ""))
+        class_name = class_map.get(class_code) or html_cell_text(row.get("test", ""))
+        horse = html_cell_text(row.get("horse", ""))
+        arena = html_cell_text(row.get("ring", ""))
+
+        if not class_code:
+            continue
+
+        rides.append({
+            "rider": rider,
+            "day": date_to_day_abbreviation(row.get("day", "")),
+            "time": hso_time_to_display_time(row.get("rideTime", "")),
+            "ready_by": "",
+            "coach": "",
+            "class": class_code,
+            "class_name": class_name,
+            "horse": horse,
+            "arena": arena,
+            "arena_number": "",
+            "arena_name": arena,
+            "notes": "",
+            "raw": " ".join(
+                value for value in [
+                    html_cell_text(row.get("day", "")),
+                    html_cell_text(row.get("rideTime", "")),
+                    class_code,
+                    class_name,
+                    horse,
+                    arena,
+                ]
+                if value
+            ),
+        })
+
+    return rides
+
+
+def fetch_foxvillage_rides(rider_links, riders):
+    rides = []
+    class_maps_by_show = {}
+
+    for rider in riders:
+        rider_info = rider_links.get(rider)
+
+        if not rider_info:
+            continue
+
+        show_id = rider_info.get("show_id")
+        rider_id = rider_info.get("rider_id")
+
+        if not show_id or not rider_id:
+            continue
+
+        if show_id not in class_maps_by_show:
+            class_maps_by_show[show_id] = fetch_foxvillage_class_map(show_id)
+
+        data = url_request_json(
+            foxvillage_endpoint(
+                "/show/GetAllRiderData",
+                show=show_id,
+                id=rider_id
+            )
+        )
+        rows = data.get("riderPageData", [])
+        rides.extend(
+            parse_foxvillage_rider_rows(
+                rows,
+                rider,
+                class_maps_by_show[show_id]
+            )
+        )
+
+    return rides
+
+
+def fetch_rider_links_from_url(url, source_type=None):
+    source_type = source_type or source_type_from_url(url)
+
+    if source_type == "foxvillage":
+        return fetch_foxvillage_rider_links(url)
+
+    if source_type == "horseshowoffice":
+        return fetch_horse_show_office_rider_links(url)
+
+    raise ValueError("Unsupported show platform.")
+
+
+def fetch_rides_for_riders(rider_links, riders):
+    if not riders:
+        return []
+
+    first_link = next(iter(rider_links.values()), "")
+
+    if isinstance(first_link, dict) and first_link.get("source") == "foxvillage":
+        return fetch_foxvillage_rides(rider_links, riders)
+
+    return fetch_horse_show_office_rides(rider_links, riders)
 
 
 def class_map_from_rides(rides):

@@ -32,6 +32,7 @@ class HorseShowSchedulerGUI:
         self.class_schedule_url = tk.StringVar()
         self.skip_arena_source = tk.BooleanVar(value=False)
         self.show_name = tk.StringVar()
+        self.show_platform = tk.StringVar(value="HorseShowOffice")
         self.rider_search = tk.StringVar()
 
         self.class_map = {}
@@ -59,6 +60,7 @@ class HorseShowSchedulerGUI:
         self.global_scroll_bindings_installed = False
 
         self.show_name.trace_add("write", lambda *args: self.update_checklist())
+        self.show_platform.trace_add("write", lambda *args: self.on_platform_changed())
         self.ride_time_pdf.trace_add("write", lambda *args: self.on_ride_pdf_changed())
         self.ride_time_url.trace_add("write", lambda *args: self.on_ride_url_changed())
         self.class_schedule_pdf.trace_add("write", lambda *args: self.on_class_pdf_changed())
@@ -69,6 +71,34 @@ class HorseShowSchedulerGUI:
 
         self.build_interface()
         self.load_existing_riders()
+        self.update_checklist()
+
+    def selected_platform_key(self):
+        platform = self.show_platform.get()
+
+        if platform == "FoxVillage":
+            return "foxvillage"
+
+        return "horseshowoffice"
+
+    def selected_platform_name(self):
+        return "FoxVillage" if self.selected_platform_key() == "foxvillage" else "HorseShowOffice"
+
+    def platform_requires_arena_source(self):
+        return self.selected_platform_key() == "horseshowoffice"
+
+    def on_platform_changed(self):
+        if hasattr(self, "ride_url_label"):
+            if self.selected_platform_key() == "foxvillage":
+                self.ride_url_label.config(text="FoxVillage Show URL:")
+            else:
+                self.ride_url_label.config(text="Ride Times Lookup URL:")
+
+        self.ride_time_url.set("")
+        self.class_schedule_url.set("")
+        self.class_schedule_pdf.set("")
+        self.clear_ride_time_data()
+        self.clear_class_data()
         self.update_checklist()
 
     def on_ride_pdf_changed(self):
@@ -431,6 +461,17 @@ class HorseShowSchedulerGUI:
         self.show_name_status = tk.Label(show_frame, text="⬜", width=4)
         self.show_name_status.pack(side="left", padx=5)
 
+        platform_frame = tk.Frame(self.main_frame)
+        platform_frame.pack(fill="x", padx=20, pady=5)
+
+        tk.Label(platform_frame, text="Show Platform:", width=18, anchor="w").pack(side="left")
+        tk.OptionMenu(
+            platform_frame,
+            self.show_platform,
+            "HorseShowOffice",
+            "FoxVillage"
+        ).pack(side="left")
+
         classes_header_frame = tk.Frame(self.main_frame)
         classes_header_frame.pack(fill="x", padx=20, pady=(15, 3))
 
@@ -587,11 +628,17 @@ class HorseShowSchedulerGUI:
         ride_url_frame = tk.Frame(self.main_frame)
         ride_url_frame.pack(fill="x", padx=20, pady=5)
 
-        tk.Label(ride_url_frame, text="Ride Times Lookup URL:", width=18, anchor="w").pack(side="left")
+        self.ride_url_label = tk.Label(
+            ride_url_frame,
+            text="Ride Times Lookup URL:",
+            width=18,
+            anchor="w"
+        )
+        self.ride_url_label.pack(side="left")
         self.create_prompt_entry(
             ride_url_frame,
             self.ride_time_url,
-            "From the main show page, click Ride Times Lookup and paste that URL here"
+            "Paste HorseShowOffice Ride Times Lookup or FoxVillage show URL"
         ).pack(side="left", fill="x", expand=True)
         tk.Button(
             ride_url_frame,
@@ -1129,16 +1176,28 @@ class HorseShowSchedulerGUI:
 
         if not ride_url:
             messagebox.showerror(
-                "Missing Ride Times Lookup URL",
-                "From the main show page, click Ride Times Lookup and paste that URL here."
+                "Missing Show URL",
+                "Paste the URL for the selected show platform first."
             )
             return
 
         try:
-            self.hso_rider_links = app.fetch_horse_show_office_rider_links(ride_url)
+            selected_platform = self.selected_platform_key()
+            actual_platform = app.source_type_from_url(ride_url)
+
+            if actual_platform != selected_platform:
+                raise ValueError(
+                    f"The selected platform is {self.selected_platform_name()}, "
+                    f"but that URL looks like {actual_platform}."
+                )
+
+            self.hso_rider_links = app.fetch_rider_links_from_url(
+                ride_url,
+                selected_platform
+            )
 
             if not self.hso_rider_links:
-                raise ValueError("No riders were found at that HorseShowOffice URL.")
+                raise ValueError(f"No riders were found at that {self.selected_platform_name()} URL.")
 
             self.available_riders = list(self.hso_rider_links.keys())
             self.filtered_available_riders = self.available_riders[:]
@@ -1157,7 +1216,8 @@ class HorseShowSchedulerGUI:
 
             messagebox.showinfo(
                 "Riders Loaded",
-                f"Found {len(self.available_riders)} possible riders from HorseShowOffice."
+                f"Found {len(self.available_riders)} possible riders from "
+                f"{self.selected_platform_name()}."
             )
 
             self.update_checklist()
@@ -1271,7 +1331,7 @@ class HorseShowSchedulerGUI:
         if not riders_missing_counts:
             return
 
-        rides = app.fetch_horse_show_office_rides(
+        rides = app.fetch_rides_for_riders(
             self.hso_rider_links,
             riders_missing_counts
         )
@@ -1294,13 +1354,13 @@ class HorseShowSchedulerGUI:
         if self.ride_time_source == "url":
             if not self.hso_rider_links:
                 messagebox.showerror(
-                    "Missing Ride-Times URL",
-                    "Load riders from a HorseShowOffice URL first."
+                    "Missing Show URL",
+                    f"Load riders from a {self.selected_platform_name()} URL first."
                 )
                 return
 
             try:
-                self.hso_selected_rides = app.fetch_horse_show_office_rides(
+                self.hso_selected_rides = app.fetch_rides_for_riders(
                     self.hso_rider_links,
                     riders
                 )
@@ -1470,6 +1530,7 @@ class HorseShowSchedulerGUI:
         class_url = self.class_schedule_url.get().strip()
         arena_source_loaded = bool(class_pdf)
         arena_source_skipped = self.skip_arena_source.get()
+        arena_source_required = self.platform_requires_arena_source()
         rider_count = len(self.get_rider_lines())
 
         if hasattr(self, "show_name_status"):
@@ -1511,19 +1572,27 @@ class HorseShowSchedulerGUI:
 
         lines = []
 
+        lines.append(f"✅ Platform: {self.selected_platform_name()}")
+
         if show_name:
             lines.append("✅ Show name entered")
         else:
             lines.append("⬜ Enter show name")
 
         if self.ride_time_source == "url" and self.hso_rider_links:
-            lines.append("✅ Ride-time URL loaded")
+            lines.append(f"✅ {self.selected_platform_name()} URL loaded")
         elif ride_pdf:
             lines.append("✅ Ride-time PDF selected")
         else:
-            lines.append("⬜ Load ride-time URL or select PDF fallback")
+            lines.append("⬜ Load show URL or select PDF fallback")
 
-        if arena_source_loaded:
+        if (
+            self.ride_time_source == "url"
+            and self.hso_rider_links
+            and not arena_source_required
+        ):
+            lines.append("✅ FoxVillage includes arena/ring details")
+        elif arena_source_loaded:
             if class_url:
                 lines.append("✅ Ride Schedule URL loaded for arena/ring details")
             else:
@@ -1551,6 +1620,7 @@ class HorseShowSchedulerGUI:
 
         arena_details_loaded = (
             self.ride_time_source != "url"
+            or not arena_source_required
             or arena_source_loaded
             or arena_source_skipped
         )
@@ -2028,7 +2098,7 @@ class HorseShowSchedulerGUI:
                     ]
 
                     if not rides:
-                        rides = app.fetch_horse_show_office_rides(
+                        rides = app.fetch_rides_for_riders(
                             self.hso_rider_links,
                             riders
                         )
