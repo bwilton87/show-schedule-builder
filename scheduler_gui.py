@@ -95,7 +95,27 @@ class HorseShowSchedulerGUI:
     def platform_requires_arena_source(self):
         return self.selected_platform_key() == "horseshowoffice"
 
-    def on_platform_changed(self):
+    def ride_url_help_text(self):
+        platform = self.selected_platform_key()
+
+        if platform == "equestrianhub":
+            return (
+                "Use the Equestrian Hub show page URL.\n"
+                "Example: https://equestrian-hub.com/show/274044"
+            )
+
+        if platform == "foxvillage":
+            return (
+                "Use the FoxVillage show page URL.\n"
+                "Example: https://www.foxvillage.com/show?id=11741"
+            )
+
+        return (
+            "Use the HorseShowOffice Ride Times Lookup URL.\n"
+            "Example: https://www.horseshowoffice.com/hso/ridetimes.asp?s=5298&o=50"
+        )
+
+    def update_ride_url_guidance(self):
         if hasattr(self, "ride_url_label"):
             if self.selected_platform_key() == "equestrianhub":
                 self.ride_url_label.config(text="Equestrian Hub URL:")
@@ -104,6 +124,19 @@ class HorseShowSchedulerGUI:
             else:
                 self.ride_url_label.config(text="Ride Times Lookup URL:")
 
+        if hasattr(self, "ride_url_help_label"):
+            self.ride_url_help_label.config(text=self.ride_url_help_text())
+
+    def update_ride_url_help_wrap(self, event=None):
+        if not hasattr(self, "ride_url_help_label"):
+            return
+
+        window_width = self.root.winfo_width()
+        wrap_width = max(520, window_width - 250)
+        self.ride_url_help_label.config(wraplength=wrap_width)
+
+    def on_platform_changed(self):
+        self.update_ride_url_guidance()
         self.ride_time_url.set("")
         self.class_schedule_url.set("")
         self.class_schedule_pdf.set("")
@@ -660,6 +693,17 @@ class HorseShowSchedulerGUI:
         self.ride_url_status = tk.Label(ride_url_frame, text="⬜", width=4)
         self.ride_url_status.pack(side="left", padx=5)
 
+        self.ride_url_help_label = tk.Label(
+            self.main_frame,
+            text=self.ride_url_help_text(),
+            anchor="w",
+            justify="left",
+            fg="gray",
+            wraplength=750
+        )
+        self.ride_url_help_label.pack(fill="x", padx=205, pady=(0, 5))
+        self.root.bind("<Configure>", self.update_ride_url_help_wrap, add="+")
+
         ride_frame = tk.Frame(self.main_frame)
         ride_frame.pack(fill="x", padx=20, pady=5)
         self.ride_frame = ride_frame
@@ -1188,7 +1232,7 @@ class HorseShowSchedulerGUI:
         if not ride_url:
             messagebox.showerror(
                 "Missing Show URL",
-                "Paste the URL for the selected show platform first."
+                f"Paste the URL for the selected show platform first.\n\n{self.ride_url_help_text()}"
             )
             return
 
