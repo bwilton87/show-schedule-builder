@@ -127,14 +127,6 @@ class HorseShowSchedulerGUI:
         if hasattr(self, "ride_url_help_label"):
             self.ride_url_help_label.config(text=self.ride_url_help_text())
 
-    def update_ride_url_help_wrap(self, event=None):
-        if not hasattr(self, "ride_url_help_label"):
-            return
-
-        window_width = self.root.winfo_width()
-        wrap_width = max(520, window_width - 250)
-        self.ride_url_help_label.config(wraplength=wrap_width)
-
     def on_platform_changed(self):
         self.update_ride_url_guidance()
         self.ride_time_url.set("")
@@ -294,6 +286,51 @@ class HorseShowSchedulerGUI:
         widget.yview_scroll(1, "units")
         return "break"
 
+    def scroll_target_from_event(self, event):
+        target = getattr(event, "widget", None)
+
+        try:
+            containing = event.widget.winfo_containing(event.x_root, event.y_root)
+            if containing is not None:
+                target = containing
+        except tk.TclError:
+            pass
+
+        while target is not None:
+            if isinstance(target, (tk.Listbox, tk.Text)):
+                return target
+
+            if target in (self.canvas, self.main_frame):
+                break
+
+            target = getattr(target, "master", None)
+
+        return self.canvas
+
+    def dispatch_scroll_event(self, event):
+        target = self.scroll_target_from_event(event)
+
+        if target == self.canvas:
+            return self.scroll_main_canvas(event)
+
+        return self.scroll_widget(event, target)
+
+    def dispatch_scroll_up(self, event):
+        target = self.scroll_target_from_event(event)
+
+        if target == self.canvas:
+            return self.scroll_main_canvas_up(event)
+
+        return self.scroll_widget_up(event, target)
+
+    def dispatch_scroll_down(self, event):
+        target = self.scroll_target_from_event(event)
+
+        if target == self.canvas:
+            return self.scroll_main_canvas_down(event)
+
+        return self.scroll_widget_down(event, target)
+
     def scroll_main_canvas_key(self, event):
         key_scroll_units = {
             "Up": -3,
@@ -320,37 +357,22 @@ class HorseShowSchedulerGUI:
         )
 
         for wheel_event in wheel_events:
-            if isinstance(widget, (tk.Listbox, tk.Text)):
-                widget.bind(
-                    wheel_event,
-                    lambda event, target=widget: self.scroll_widget(event, target),
-                    add="+"
-                )
-            else:
-                widget.bind(wheel_event, self.scroll_main_canvas, add="+")
+            widget.bind(wheel_event, self.dispatch_scroll_event, add="+")
 
         if isinstance(widget, (tk.Listbox, tk.Text)):
-            widget.bind(
-                "<Button-4>",
-                lambda event, target=widget: self.scroll_widget_up(event, target),
-                add="+"
-            )
-            widget.bind(
-                "<Button-5>",
-                lambda event, target=widget: self.scroll_widget_down(event, target),
-                add="+"
-            )
             widget.bind(
                 "<Enter>",
                 lambda event, target=widget: target.focus_set(),
                 add="+"
             )
+            widget.bind("<Button-4>", self.dispatch_scroll_up, add="+")
+            widget.bind("<Button-5>", self.dispatch_scroll_down, add="+")
         elif isinstance(widget, tk.Entry):
-            widget.bind("<Button-4>", self.scroll_main_canvas_up, add="+")
-            widget.bind("<Button-5>", self.scroll_main_canvas_down, add="+")
+            widget.bind("<Button-4>", self.dispatch_scroll_up, add="+")
+            widget.bind("<Button-5>", self.dispatch_scroll_down, add="+")
         else:
-            widget.bind("<Button-4>", self.scroll_main_canvas_up, add="+")
-            widget.bind("<Button-5>", self.scroll_main_canvas_down, add="+")
+            widget.bind("<Button-4>", self.dispatch_scroll_up, add="+")
+            widget.bind("<Button-5>", self.dispatch_scroll_down, add="+")
             widget.bind("<Enter>", self.focus_scroll_area, add="+")
             widget.bind("<Up>", self.scroll_main_canvas_key, add="+")
             widget.bind("<Down>", self.scroll_main_canvas_key, add="+")
@@ -359,10 +381,15 @@ class HorseShowSchedulerGUI:
 
         if not self.global_scroll_bindings_installed:
             for wheel_event in wheel_events:
-                self.root.bind_class("all", wheel_event, self.scroll_main_canvas, add="+")
+                self.root.bind_class(
+                    "all",
+                    wheel_event,
+                    self.dispatch_scroll_event,
+                    add="+"
+                )
 
-            self.root.bind_class("all", "<Button-4>", self.scroll_main_canvas_up, add="+")
-            self.root.bind_class("all", "<Button-5>", self.scroll_main_canvas_down, add="+")
+            self.root.bind_class("all", "<Button-4>", self.dispatch_scroll_up, add="+")
+            self.root.bind_class("all", "<Button-5>", self.dispatch_scroll_down, add="+")
             self.root.bind_class("all", "<Up>", self.scroll_main_canvas_key, add="+")
             self.root.bind_class("all", "<Down>", self.scroll_main_canvas_key, add="+")
             self.root.bind_class("all", "<Prior>", self.scroll_main_canvas_key, add="+")
@@ -702,7 +729,6 @@ class HorseShowSchedulerGUI:
             wraplength=750
         )
         self.ride_url_help_label.pack(fill="x", padx=205, pady=(0, 5))
-        self.root.bind("<Configure>", self.update_ride_url_help_wrap, add="+")
 
         ride_frame = tk.Frame(self.main_frame)
         ride_frame.pack(fill="x", padx=20, pady=5)
