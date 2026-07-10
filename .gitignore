@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+build/
+release/
+output/
+
+class_schedules/horse_show_scheduler_ride_schedule.pdf

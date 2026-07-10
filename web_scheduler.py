@@ -4,8 +4,8 @@ import json
 import mimetypes
 import os
 import socket
+import sys
 import threading
-import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,8 +14,11 @@ from urllib.parse import unquote, urlparse
 import app
 
 
+APP_NAME = "Show Schedule Builder"
 PROJECT_ROOT = Path(__file__).parent
-STATIC_ROOT = PROJECT_ROOT / "web_static"
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", PROJECT_ROOT))
+STATIC_ROOT = RESOURCE_ROOT / "web_static"
+DATA_ROOT = Path.home() / "Library" / "Application Support" / APP_NAME
 HOST = "127.0.0.1"
 DEFAULT_PORT = 5050
 
@@ -38,6 +41,24 @@ SOURCE_TYPES = {
     "foxvillage": "foxvillage",
     "horseshowoffice": "horseshowoffice",
 }
+
+
+def configure_app_paths():
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+
+    app.PDF_FOLDER = str(DATA_ROOT / "ride_times")
+    app.CLASS_SCHEDULE_FOLDER = str(DATA_ROOT / "class_schedules")
+    app.RIDERS_FILE = str(DATA_ROOT / "riders.txt")
+    app.OUTPUT_FOLDER = str(DATA_ROOT / "output")
+    app.ARCHIVE_FOLDER = str(DATA_ROOT / "archive")
+
+    for folder in (
+        app.PDF_FOLDER,
+        app.CLASS_SCHEDULE_FOLDER,
+        app.OUTPUT_FOLDER,
+        app.ARCHIVE_FOLDER,
+    ):
+        Path(folder).mkdir(parents=True, exist_ok=True)
 
 
 def json_response(handler, payload, status=200):
@@ -87,7 +108,7 @@ def load_arena_source_from_url(ride_schedule_url):
     if not ride_schedule_url:
         return False
 
-    class_schedule_folder = PROJECT_ROOT / app.CLASS_SCHEDULE_FOLDER
+    class_schedule_folder = Path(app.CLASS_SCHEDULE_FOLDER)
     class_schedule_folder.mkdir(exist_ok=True)
     download_path = class_schedule_folder / "horse_show_scheduler_ride_schedule.pdf"
     app.download_url_to_file(ride_schedule_url, download_path)
@@ -320,7 +341,8 @@ def find_available_port(start_port=DEFAULT_PORT):
 
 
 def main():
-    os.chdir(PROJECT_ROOT)
+    configure_app_paths()
+    os.chdir(DATA_ROOT)
     port = find_available_port()
     server = ThreadingHTTPServer((HOST, port), SchedulerRequestHandler)
     url = f"http://{HOST}:{port}"
