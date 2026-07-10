@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Show Schedule Builder</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <h1>Show Schedule Builder</h1>
+        <p id="statusText" class="status-message">Paste a show URL to begin.</p>
+      </div>
+    </header>
+
+    <section class="workflow-grid">
+      <section class="panel setup-panel">
+        <div class="panel-heading">
+          <span class="step-number">1</span>
+          <h2>Show Setup</h2>
+        </div>
+
+        <label for="showName">Show name</label>
+        <input id="showName" type="text" placeholder="Example: July Dressage at Waterloo">
+
+        <label for="sourceType">Platform</label>
+        <select id="sourceType">
+          <option value="horseshowoffice">HorseShowOffice</option>
+          <option value="foxvillage">FoxVillage</option>
+          <option value="equestrianhub">Equestrian Hub</option>
+        </select>
+
+        <label for="rideUrl">Show URL</label>
+        <input id="rideUrl" type="url" placeholder="HorseShowOffice: https://www.horseshowoffice.com/hso/ridetimes.asp?s=5298&amp;o=50">
+        <p class="field-note" id="urlHelp">From the main show page, open Ride Times Lookup and paste that URL here.</p>
+
+        <div id="arenaSourceFields">
+          <label for="rideScheduleUrl">Ride Schedule URL for arena info</label>
+          <input id="rideScheduleUrl" type="url" placeholder="Paste the Ride Schedule PDF link">
+          <p class="field-note">HorseShowOffice ride-time lookup pages usually need the Ride Schedule PDF so arenas/rings can populate.</p>
+        </div>
+
+        <button id="loadRidersButton" type="button">Load Riders</button>
+      </section>
+
+      <section class="panel riders-panel">
+        <div class="panel-heading">
+          <span class="step-number">2</span>
+          <h2>Riders</h2>
+        </div>
+
+        <div class="toolbar">
+          <input id="riderSearch" type="search" placeholder="Search possible riders">
+          <button id="addSelectedButton" type="button">Add</button>
+          <button id="removeSelectedButton" type="button">Remove</button>
+        </div>
+
+        <div class="list-grid">
+          <div>
+            <h3>Possible Riders</h3>
+            <select id="availableRiders" multiple size="14"></select>
+          </div>
+          <div>
+            <h3>Selected Riders</h3>
+            <select id="selectedRiders" multiple size="14"></select>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel classes-panel">
+        <div class="panel-heading">
+          <span class="step-number">3</span>
+          <h2>Classes</h2>
+        </div>
+
+        <div class="toolbar">
+          <button id="loadClassesButton" type="button">Load Classes for Selected Riders</button>
+          <label class="checkbox-line">
+            <input id="skipArenaSource" type="checkbox">
+            One-ring show
+          </label>
+        </div>
+
+        <div class="class-summary">
+          <strong id="classCount">0</strong>
+          <span>class definitions loaded</span>
+        </div>
+
+        <div id="classList" class="class-list"></div>
+      </section>
+
+      <section class="panel generate-panel">
+        <div class="panel-heading">
+          <span class="step-number">4</span>
+          <h2>Generate</h2>
+        </div>
+
+        <button id="generateButton" type="button" disabled>Generate and Download Excel</button>
+        <pre id="detailsOutput"></pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

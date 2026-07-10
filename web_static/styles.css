@@ -1,0 +1,283 @@
+:root {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --text: #17202a;
+  --muted: #64748b;
+  --line: #d9e0e8;
+  --brand: #1d5f74;
+  --brand-dark: #16495a;
+  --success: #2f7d4f;
+  --warning: #9a5a12;
+  --disabled: #8b98a8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+button {
+  min-height: 38px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  background: var(--brand);
+  color: #ffffff;
+  cursor: pointer;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+button:hover {
+  background: var(--brand-dark);
+}
+
+button:disabled {
+  border-color: #c8d0da;
+  background: #e6ebf0;
+  color: var(--disabled);
+  cursor: not-allowed;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+label {
+  display: block;
+  margin: 12px 0 5px;
+  color: #2d3748;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.app-shell {
+  width: min(1280px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 24px 0 32px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.app-header p {
+  margin: 8px 0 0;
+}
+
+.status-message {
+  display: inline-block;
+  max-width: 720px;
+  border: 1px solid #bfd6df;
+  border-radius: 6px;
+  background: #eaf4f6;
+  color: #17485a;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  padding: 8px 10px;
+}
+
+.status-message.error {
+  border-color: #f2b8ad;
+  background: #fff0ed;
+  color: #9f2f21;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(440px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.riders-panel,
+.classes-panel,
+.generate-panel {
+  min-width: 0;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.panel-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #dcecef;
+  color: var(--brand-dark);
+  font-weight: 700;
+}
+
+.field-note {
+  margin: 6px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.toolbar input {
+  flex: 1;
+}
+
+.toolbar button {
+  flex: 0 0 auto;
+}
+
+.list-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.list-grid h3 {
+  margin: 0 0 6px;
+  color: #2d3748;
+  font-size: 14px;
+}
+
+select[multiple] {
+  height: 312px;
+  padding: 4px;
+}
+
+select[multiple] option {
+  padding: 6px 8px;
+}
+
+.checkbox-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #2d3748;
+  font-weight: 700;
+}
+
+.checkbox-line input {
+  width: auto;
+  min-height: auto;
+}
+
+.class-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+}
+
+.class-summary strong {
+  color: var(--success);
+  font-size: 24px;
+}
+
+.class-list {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.class-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf1f5;
+  font-size: 14px;
+}
+
+.class-row:last-child {
+  border-bottom: 0;
+}
+
+.class-code {
+  font-weight: 700;
+  color: #334155;
+}
+
+#generateButton {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+#detailsOutput {
+  min-height: 160px;
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9fbfc;
+  color: #334155;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .app-header,
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workflow-grid,
+  .list-grid {
+    grid-template-columns: 1fr;
+  }
+}
