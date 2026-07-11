@@ -37,3 +37,20 @@ As another fallback, Terminal can remove the download quarantine flag:
 ```sh
 xattr -dr com.apple.quarantine "/path/to/Show Schedule Builder.app"
 ```
+
+## Hosted Web App
+
+The same scheduler can run as a hosted web app on Render. The included
+`render.yaml` tells Render how to deploy it:
+
+- Build command: `pip install -r requirements.txt`
+- Start command: `python web_scheduler.py`
+- Plan: Render Free web service
+
+No manual environment variables are required for the first hosted version.
+Render automatically provides the `PORT` value that the app uses in hosted
+mode.
+
+On Render's free plan, the service may sleep after a quiet period. The site
+does not disappear, but the first page load after inactivity can be slower while
+the service wakes back up.
