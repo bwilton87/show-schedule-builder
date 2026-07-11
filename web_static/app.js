@@ -25,6 +25,7 @@ const elements = {
   classList: document.querySelector("#classList"),
   generateButton: document.querySelector("#generateButton"),
   detailsOutput: document.querySelector("#detailsOutput"),
+  sourceExamples: document.querySelectorAll("[data-source-example]"),
 };
 
 const urlHelpBySource = {
@@ -162,6 +163,12 @@ function updateSourceGuidance() {
   elements.rideUrl.placeholder = guidance.placeholder;
   elements.urlHelp.textContent = guidance.help;
   elements.arenaSourceFields.hidden = elements.sourceType.value !== "horseshowoffice";
+  for (const example of elements.sourceExamples) {
+    example.classList.toggle(
+      "active",
+      example.dataset.sourceExample === elements.sourceType.value
+    );
+  }
   updateGenerateState();
 }
 

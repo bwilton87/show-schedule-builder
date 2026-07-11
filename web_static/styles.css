@@ -113,6 +113,72 @@ label {
   color: #9f2f21;
 }
 
+.instructions-panel {
+  margin-bottom: 14px;
+  border: 1px solid #cfdbe5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.instructions-panel summary {
+  cursor: pointer;
+  color: var(--brand-dark);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 12px 14px;
+}
+
+.instructions-content {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.4fr) minmax(220px, 0.8fr);
+  gap: 14px;
+  border-top: 1px solid #e7edf2;
+  padding: 0 14px 14px;
+}
+
+.instructions-content h2 {
+  margin: 14px 0 6px;
+  color: #2d3748;
+  font-size: 14px;
+}
+
+.instructions-content p,
+.instructions-content li {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.instructions-content p {
+  margin: 0;
+}
+
+.url-examples {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.url-examples li {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.url-examples li.active {
+  border-color: #bfd6df;
+  background: #f0f8fa;
+  color: #334155;
+}
+
+.url-examples code {
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
 .workflow-grid {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(440px, 1fr);
@@ -274,6 +340,10 @@ select[multiple] option {
   .toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .instructions-content {
+    grid-template-columns: 1fr;
   }
 
   .workflow-grid,
