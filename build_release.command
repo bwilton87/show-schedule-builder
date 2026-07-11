@@ -55,6 +55,12 @@ software URLs that you paste into the page.
 
 If macOS says the app cannot be opened because it is from an unidentified
 developer, Control-click the app, choose Open, then choose Open again.
+
+If macOS says Apple could not verify the app is free of malware, click Done,
+Control-click Show Schedule Builder.app, choose Open, then choose Open again.
+
+If macOS still blocks the app, open System Settings > Privacy & Security and
+choose Open Anyway for Show Schedule Builder.
 README
 
 rm -rf "$PACKAGE_DIR" "$DIST_DIR/$APP_NAME.zip"
