@@ -14,16 +14,19 @@ const elements = {
   urlHelp: document.querySelector("#urlHelp"),
   statusText: document.querySelector("#statusText"),
   loadRidersButton: document.querySelector("#loadRidersButton"),
+  loadRidersMessage: document.querySelector("#loadRidersMessage"),
   riderSearch: document.querySelector("#riderSearch"),
   addSelectedButton: document.querySelector("#addSelectedButton"),
   removeSelectedButton: document.querySelector("#removeSelectedButton"),
   availableRiders: document.querySelector("#availableRiders"),
   selectedRiders: document.querySelector("#selectedRiders"),
   loadClassesButton: document.querySelector("#loadClassesButton"),
+  loadClassesMessage: document.querySelector("#loadClassesMessage"),
   skipArenaSource: document.querySelector("#skipArenaSource"),
   classCount: document.querySelector("#classCount"),
   classList: document.querySelector("#classList"),
   generateButton: document.querySelector("#generateButton"),
+  generateMessage: document.querySelector("#generateMessage"),
   detailsOutput: document.querySelector("#detailsOutput"),
   sourceExamples: document.querySelectorAll("[data-source-example]"),
 };
@@ -46,6 +49,11 @@ const urlHelpBySource = {
 function setStatus(message, isError = false) {
   elements.statusText.textContent = message;
   elements.statusText.classList.toggle("error", isError);
+}
+
+function setActionMessage(element, message = "") {
+  element.textContent = message;
+  element.classList.toggle("visible", Boolean(message));
 }
 
 function setBusy(button, isBusy, busyText) {
@@ -207,6 +215,7 @@ function removeSelectedRiders() {
 
 async function loadRiders() {
   setBusy(elements.loadRidersButton, true, "Loading...");
+  setActionMessage(elements.loadRidersMessage);
   setStatus("Loading riders from show URL...");
   elements.detailsOutput.textContent = "";
 
@@ -226,6 +235,7 @@ async function loadRiders() {
     setStatus(`Loaded ${data.riderCount} riders. Select riders for the schedule.`);
   } catch (error) {
     setStatus(error.message, true);
+    setActionMessage(elements.loadRidersMessage, error.message);
   } finally {
     setBusy(elements.loadRidersButton, false);
   }
@@ -233,6 +243,7 @@ async function loadRiders() {
 
 async function loadClasses() {
   setBusy(elements.loadClassesButton, true, "Loading...");
+  setActionMessage(elements.loadClassesMessage);
   setStatus("Loading rides and class definitions for selected riders...");
 
   try {
@@ -247,6 +258,7 @@ async function loadClasses() {
     setStatus(`Loaded ${data.classCount} class definitions from ${data.rideCount} rides.`);
   } catch (error) {
     setStatus(error.message, true);
+    setActionMessage(elements.loadClassesMessage, error.message);
   } finally {
     setBusy(elements.loadClassesButton, false);
   }
@@ -254,6 +266,7 @@ async function loadClasses() {
 
 async function generateSchedule() {
   setBusy(elements.generateButton, true, "Generating...");
+  setActionMessage(elements.generateMessage);
   setStatus("Generating Excel schedule...");
 
   try {
@@ -270,6 +283,7 @@ async function generateSchedule() {
     setStatus(`Generated ${data.excelFilename} from ${data.rideCount} rides.`);
   } catch (error) {
     setStatus(error.message, true);
+    setActionMessage(elements.generateMessage, error.message);
   } finally {
     setBusy(elements.generateButton, false);
     updateGenerateState();
